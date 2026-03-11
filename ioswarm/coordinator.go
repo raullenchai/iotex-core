@@ -11,7 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	iotexaddress "github.com/iotexproject/iotex-address/address"
+	"github.com/iotexproject/iotex-core/v2/actpool"
 	"github.com/iotexproject/iotex-core/v2/blockchain/block"
+	"github.com/iotexproject/iotex-core/v2/ioswarm/contracts"
 	pb "github.com/iotexproject/iotex-core/v2/ioswarm/proto"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -49,11 +53,16 @@ type Coordinator struct {
 
 	// txHash → taskID mapping for shadow comparison with on-chain results
 	txHashToTaskID sync.Map // hex tx hash → uint32 task ID
+
+	// On-chain reward distribution
+	contractCaller *ContractCaller // nil if reward contract not configured
+	rewardContract string          // AgentRewardPool address (io1... format)
 }
 
 // NewCoordinator creates a new IOSwarm coordinator.
 // actPool and stateReader are in-memory interfaces from iotex-core.
-func NewCoordinator(cfg Config, actPool ActPoolReader, stateReader StateReader, opts ...Option) *Coordinator {
+// ap is the full ActPool interface for submitting reward transactions (can be nil).
+func NewCoordinator(cfg Config, actPool ActPoolReader, stateReader StateReader, ap actpool.ActPool, opts ...Option) *Coordinator {
 	o := defaultOptions()
 	for _, fn := range opts {
 		fn(&o)
@@ -61,16 +70,33 @@ func NewCoordinator(cfg Config, actPool ActPoolReader, stateReader StateReader, 
 	logger := o.logger
 
 	registry := NewRegistry(cfg.MaxAgents)
-	return &Coordinator{
-		cfg:        cfg,
-		actPool:    actPool,
-		prefetcher: NewPrefetcher(stateReader, logger),
-		registry:   registry,
-		scheduler:  NewScheduler(registry, logger),
-		shadow:     NewShadowComparator(logger),
-		reward:     NewRewardDistributor(cfg.Reward, cfg.DelegateAddress, logger),
-		logger:     logger,
+	coord := &Coordinator{
+		cfg:            cfg,
+		actPool:        actPool,
+		prefetcher:     NewPrefetcher(stateReader, logger),
+		registry:       registry,
+		scheduler:      NewScheduler(registry, logger),
+		shadow:         NewShadowComparator(logger),
+		reward:         NewRewardDistributor(cfg.Reward, cfg.DelegateAddress, logger),
+		logger:         logger,
+		rewardContract: cfg.RewardContract,
 	}
+
+	// Set up on-chain reward caller if configured
+	if cfg.RewardContract != "" && cfg.RewardSignerKey != "" && ap != nil {
+		cc, err := NewContractCaller(cfg.RewardSignerKey, ap, logger)
+		if err != nil {
+			logger.Error("failed to create reward contract caller (rewards will be off-chain only)", zap.Error(err))
+		} else {
+			coord.contractCaller = cc
+			logger.Info("reward contract caller configured",
+				zap.String("contract", cfg.RewardContract),
+				zap.String("hot_wallet", cc.Address()),
+			)
+		}
+	}
+
+	return coord
 }
 
 // Option configures the coordinator.
@@ -99,6 +125,19 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		zap.Int("port", c.cfg.GRPCPort),
 		zap.Bool("shadow_mode", c.cfg.ShadowMode),
 		zap.String("task_level", c.cfg.TaskLevel))
+
+	// Initialize hot wallet nonce from on-chain state
+	if c.contractCaller != nil {
+		hotAddr := c.contractCaller.Address()
+		acct, err := c.prefetcher.stateReader.AccountState(hotAddr)
+		if err == nil && acct != nil {
+			c.contractCaller.SetNonce(acct.Nonce)
+			c.logger.Info("hot wallet nonce initialized",
+				zap.String("address", hotAddr),
+				zap.Uint64("nonce", acct.Nonce),
+			)
+		}
+	}
 
 	// Start gRPC server
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", c.cfg.GRPCPort))
@@ -510,13 +549,19 @@ func (c *Coordinator) distributeEpochReward() {
 
 	summary := c.reward.Distribute(epochRewardInt)
 
-	// Queue payout notifications for each agent's next heartbeat
+	// On-chain settlement via AgentRewardPool contract
+	if c.contractCaller != nil && c.rewardContract != "" {
+		c.settleOnChain(summary)
+	}
+
+	// Queue payout notifications for each agent's next heartbeat (informational)
 	for i, p := range summary.Payouts {
 		c.pendingPayouts.Store(p.AgentID, &pb.PayoutInfo{
-			Epoch:       summary.Epoch,
-			AmountIOTX:  p.AmountIOTX,
-			Rank:        i + 1,
-			TotalAgents: summary.AgentCount,
+			Epoch:          summary.Epoch,
+			AmountIOTX:     p.AmountIOTX,
+			Rank:           int32(i + 1),
+			TotalAgents:    int32(summary.AgentCount),
+			RewardContract: c.rewardContract,
 		})
 	}
 
@@ -524,6 +569,50 @@ func (c *Coordinator) distributeEpochReward() {
 		zap.Uint64("epoch", summary.Epoch),
 		zap.Int("agents", summary.AgentCount),
 		zap.Uint64("total_tasks", summary.TotalTasks))
+}
+
+// settleOnChain calls the AgentRewardPool contract to deposit IOTX and update agent weights.
+func (c *Coordinator) settleOnChain(summary *EpochSummary) {
+	if len(summary.Payouts) == 0 {
+		return
+	}
+
+	addrs := make([]common.Address, 0, len(summary.Payouts))
+	weights := make([]*big.Int, 0, len(summary.Payouts))
+	for _, p := range summary.Payouts {
+		if p.WalletAddress == "" {
+			continue
+		}
+		ethAddr, err := ioAddrToEthAddress(p.WalletAddress)
+		if err != nil {
+			c.logger.Warn("invalid agent wallet address, skipping",
+				zap.String("agent", p.AgentID),
+				zap.String("wallet", p.WalletAddress),
+				zap.Error(err),
+			)
+			continue
+		}
+		addrs = append(addrs, ethAddr)
+		weights = append(weights, big.NewInt(int64(p.TasksDone)))
+	}
+
+	if len(addrs) == 0 {
+		c.logger.Warn("no agents with wallet addresses for on-chain settlement")
+		return
+	}
+
+	data, err := contracts.PackDepositAndSettle(addrs, weights)
+	if err != nil {
+		c.logger.Error("failed to pack depositAndSettle", zap.Error(err))
+		return
+	}
+
+	if err := c.contractCaller.Call(context.Background(), c.rewardContract, summary.AgentPool, data, 500_000); err != nil {
+		c.logger.Error("failed to call depositAndSettle",
+			zap.Error(err),
+			zap.Uint64("epoch", summary.Epoch),
+		)
+	}
 }
 
 // consumePayout removes and returns a pending payout for the agent, if any.
@@ -594,4 +683,18 @@ func parseTaskLevel(s string) pb.TaskLevel {
 	default:
 		return pb.TaskLevel_L2_STATE_VERIFY
 	}
+}
+
+// ioAddrToEthAddress converts an IoTeX address (io1...) or hex address (0x...) to common.Address.
+func ioAddrToEthAddress(addr string) (common.Address, error) {
+	if len(addr) > 2 && addr[:2] == "0x" {
+		return common.HexToAddress(addr), nil
+	}
+	ioAddr, err := iotexaddress.FromString(addr)
+	if err != nil {
+		return common.Address{}, err
+	}
+	var ethAddr common.Address
+	copy(ethAddr[:], ioAddr.Bytes())
+	return ethAddr, nil
 }

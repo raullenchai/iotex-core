@@ -16,7 +16,7 @@ func newTestSwarmAPI() (*SwarmAPI, *Coordinator, *RewardDistributor) {
 	actPool := &mockActPool{}
 	stateReader := &mockState{accounts: make(map[string]*pb.AccountSnapshot)}
 
-	coord := NewCoordinator(cfg, actPool, stateReader, WithLogger(logger))
+	coord := NewCoordinator(cfg, actPool, stateReader, nil, WithLogger(logger))
 	reward := NewRewardDistributor(DefaultRewardConfig(), "", logger)
 	api := NewSwarmAPI(coord, reward)
 	return api, coord, reward

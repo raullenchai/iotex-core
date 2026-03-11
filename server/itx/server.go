@@ -157,6 +157,7 @@ func newServer(cfg config.Config, testing bool) (*Server, error) {
 			cfg.IOSwarm,
 			ioswarm.NewActPoolAdapter(cs.ActionPool(), cs.Blockchain()),
 			ioswarm.NewStateReaderAdapter(cs.StateFactory(), cs.Blockchain(), cfg.Genesis),
+			cs.ActionPool(), // for on-chain reward settlement
 		)
 		// Subscribe to block events for shadow comparison
 		if err := cs.Blockchain().AddSubscriber(svr.ioswarmCoord); err != nil {

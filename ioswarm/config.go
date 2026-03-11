@@ -12,6 +12,8 @@ type Config struct {
 	MasterSecret    string       `yaml:"masterSecret"`    // HMAC master secret for agent auth (empty = no auth)
 	DelegateAddress string       `yaml:"delegateAddress"` // delegate's IOTX address for reward payout
 	EpochRewardIOTX float64      `yaml:"epochRewardIOTX"` // IOTX per epoch for reward distribution (default 800)
+	RewardContract  string       `yaml:"rewardContract"`  // AgentRewardPool contract address (io1... format). Empty = off-chain only.
+	RewardSignerKey string       `yaml:"rewardSignerKey"` // hex private key for reward hot wallet (NOT operator key)
 	Reward          RewardConfig `yaml:"reward"`
 }
 

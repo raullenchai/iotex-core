@@ -117,4 +117,5 @@ message PayoutInfo {
   double amount_iotx = 2;
   int32  rank = 3;
   int32  total_agents = 4;
+  string reward_contract = 5; // AgentRewardPool contract address for claim()
 }
