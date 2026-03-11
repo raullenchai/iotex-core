@@ -361,7 +361,7 @@ func main() {
 		PollIntervalMS: int(cfg.blockTime.Milliseconds()),
 	}
 
-	coord := ioswarm.NewCoordinator(coordCfg, actPool, stateDB, ioswarm.WithLogger(logger))
+	coord := ioswarm.NewCoordinator(coordCfg, actPool, stateDB, nil, ioswarm.WithLogger(logger))
 
 	// Start gRPC server
 	lis, err := net.Listen("tcp", "127.0.0.1:0")

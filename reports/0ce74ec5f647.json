@@ -1,0 +1,1820 @@
+{
+  "session_id": "0ce74ec5f647",
+  "target": "/Users/raullenstudio/work/iotex-core",
+  "started_at": "2026-03-05T20:38:10.850721",
+  "config_snapshot": {
+    "roles": {
+      "reviewer": {
+        "description": "Senior code reviewer \u2014 finds bugs, security, correctness issues",
+        "prompt_file": "prompts/reviewer.txt"
+      },
+      "coder": {
+        "description": "Expert developer \u2014 applies fixes or rejects with reasoning",
+        "prompt_file": "prompts/coder.txt"
+      },
+      "judge": {
+        "description": "Final arbiter \u2014 evaluates all rounds, scores, verdict",
+        "prompt_file": "prompts/judge.txt"
+      }
+    },
+    "models": {
+      "claude-opus": {
+        "provider": "claude-cli",
+        "model": "opus"
+      },
+      "claude-sonnet": {
+        "provider": "claude-cli",
+        "model": "sonnet"
+      },
+      "codex": {
+        "provider": "codex-cli"
+      },
+      "qwen-local": {
+        "provider": "openai-compat",
+        "base_url": "http://localhost:8000",
+        "model": "/Users/raullenstudio/.lmstudio/models/lmstudio-community/Qwen3-Coder-Next-MLX-6bit",
+        "max_tokens": 32768,
+        "temperature": 0.1,
+        "no_think": false
+      },
+      "deepseek": {
+        "provider": "openai-compat",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-coder",
+        "api_key_env": "DEEPSEEK_API_KEY"
+      }
+    },
+    "assignments": {
+      "reviewer": "qwen-local",
+      "coder": "qwen-local",
+      "judge": "qwen-local"
+    },
+    "pipeline": {
+      "max_rounds": 4,
+      "batch_max_lines": 800,
+      "severity_threshold": "warning",
+      "auto_style_fix": true,
+      "review_passes": 1,
+      "review_min_votes": 1,
+      "only_high_confidence": false,
+      "static_analysis": true,
+      "review_layers": [],
+      "knowledge_accumulation": false,
+      "smart_grouping": true,
+      "concurrency": 1
+    }
+  },
+  "rounds": [
+    {
+      "round_number": 1,
+      "findings": [
+        {
+          "file": "action/protocol/staking/protocol.go",
+          "line": 284,
+          "severity": "error",
+          "category": "bug",
+          "message": "Race condition in parallel indexer initialization: errChan is closed before all goroutines finish, causing potential panic on range loop when errors occur after close.",
+          "suggestion": "Move close(errChan) after wg.Wait() completes, and use a separate done channel or atomic flag to ensure safe closing only after all goroutines have exited."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 218,
+          "severity": "error",
+          "category": "bug",
+          "message": "Unstake logic duplicates code block for updating bucket.UnstakeStartTime under both branches of UnstakedButNotClearSelfStake feature flag, causing redundant write and potential inconsistency if logic diverges in future.",
+          "suggestion": "Remove the redundant block and unify the unstake time assignment before the self-stake clearing logic."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 332,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleChangeCandidate, when prevCandidate.SelfStakeBucketIdx == bucket.Index, the code clears self-stake only if !featureCtx.DisableDelegateEndorsement, but the condition should be independent of DisableDelegateEndorsement because self-stake bucket may be expired regardless of endorsement.",
+          "suggestion": "Remove the !featureCtx.DisableDelegateEndorsement guard and always clear self-stake when bucket.Index matches SelfStakeBucketIdx."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 437,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleDepositToStake, prevWeightedVotes is calculated before updating bucket.StakedAmount, but then candidate.SubVote(prevWeightedVotes) is called \u2014 this is correct, but the subsequent weightedVotes calculation uses the updated bucket.StakedAmount, which is correct. However, if isSelfStakeBucket returns an error, the function returns early without subtracting prevWeightedVotes, causing vote imbalance.",
+          "suggestion": "Ensure prevWeightedVotes subtraction happens before any early return on error, or restructure to avoid vote imbalance."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 520,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleRestake, when reducing duration (bucket.StakedDuration.Hours() > actDuration.Hours()), the code checks AutoStake and maturity, but does not validate that the new duration is at least the minimum allowed duration (e.g., protocol minimum stake duration), potentially allowing invalid short durations.",
+          "suggestion": "Add validation to ensure actDuration >= p.config.MinStakeDuration before allowing duration reduction."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 707,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleCandidateRegister, when registering with self-stake, the code calls csm.putBucketAndIndex(bucket) and later uses bucketIdx in logs and transaction logs, but bucketIdx is only set when withSelfStake is true. If withSelfStake is false, bucketIdx remains 0 (candidateNoSelfStakeBucketIndex), but the log.SetData uses bucketIdx unconditionally \u2014 this is acceptable, but the transaction log for self-stake is only appended when withSelfStake is true, while the log.SetData is always set \u2014 inconsistency in log data vs transaction logs.",
+          "suggestion": "Ensure transaction log and receipt log data are aligned: either always include self-stake transaction log or conditionally set log data only when withSelfStake."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 844,
+          "severity": "error",
+          "category": "bug",
+          "message": "In fetchBucketAndValidate, when checkOwner is true and owner does not match, the function returns &handleError{...failureStatus: iotextypes.ReceiptStatus_ErrUnauthorizedOperator}. However, in handleTransferStake (line ~377), this error is caught and consignment transfer is attempted, but if consignment fails, the original fetchErr is returned \u2014 but fetchErr is already wrapped in handleError, and the caller may not expect double-wrapping or may mishandle the status code.",
+          "suggestion": "Refactor error handling to avoid double-wrapping and ensure consistent error propagation; consider returning a sentinel error type or unwrapping before re-returning."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 915,
+          "severity": "error",
+          "category": "bug",
+          "message": "In generateCandidateID, the loop attempts up to 1000 iterations to find a unique candidate ID, but if all 1000 attempts fail, it returns errors.New(\"failed to generate candidate ID after max attempts\") \u2014 this is a DoS vector: an attacker could pre-register candidates to exhaust the ID space and cause registration failure.",
+          "suggestion": "Increase iteration limit or use a deterministic fallback (e.g., append timestamp or nonce) to avoid hard failure; or document and limit acceptable collision rate."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 934,
+          "severity": "error",
+          "category": "bug",
+          "message": "In fetchCaller, gasFee is computed as actionCtx.GasPrice * actionCtx.IntrinsicGas, but this does not account for potential overflow if GasPrice is extremely large (e.g., max uint64), causing incorrect balance check and potential underflow in HasSufficientBalance.",
+          "suggestion": "Add overflow check before multiplication: if gasPrice > 0 && intrinsicGas > maxUint64/gasPrice, return ErrNotEnoughBalance."
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 203,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: c.view.candCenter is accessed without checking if c.view is nil, causing panic if ConstructBaseView or CreateBaseView failed to initialize view properly",
+          "suggestion": "Add nil check for c.view before accessing c.view.candCenter in GetCandidateByName, GetCandidateByOwner, GetByIdentifier, AllCandidates, ContainsSelfStakingBucket, TotalStakedAmount, and ActiveBucketsCount methods"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 260,
+          "severity": "error",
+          "category": "bug",
+          "message": "Race condition: iter.Size() is used before iterating, but States() iterator may not be thread-safe; concurrent access could cause inconsistent iteration behavior",
+          "suggestion": "Replace iter.Size() with counting during iteration or ensure States() iterator is safe for concurrent use; consider using sync/atomic or removing reliance on iter.Size()"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 304,
+          "severity": "error",
+          "category": "bug",
+          "message": "Incorrect error handling: errors.Cause(err) == state.ErrStateNotExist is checked after already returning err in NativeBucket(), causing ErrWithdrawnBucket to be returned only when err is exactly state.ErrStateNotExist, but wrapped errors may bypass this check",
+          "suggestion": "Use errors.Is(err, state.ErrStateNotExist) instead of errors.Cause(err) == state.ErrStateNotExist to properly handle wrapped errors"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 337,
+          "severity": "error",
+          "category": "bug",
+          "message": "Missing validation: req.GetIndex() is directly cast to BucketIndices without checking for nil or empty slice, potentially causing panic or unexpected behavior in getExistingBucketsWithIndices",
+          "suggestion": "Add validation for req.GetIndex() before casting to BucketIndices, e.g., check if len(req.GetIndex()) == 0 and return empty result"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 420,
+          "severity": "error",
+          "category": "bug",
+          "message": "Logic error: In readStateCandidateByAddress, when both candByOwner and candByID are non-nil but refer to different candidates, the method arbitrarily picks candByID over candByOwner without resolving the conflict, potentially returning incorrect candidate data",
+          "suggestion": "Add explicit conflict resolution logic: if both candidates exist but differ, return error or implement defined priority (e.g., prefer candidate by ID if both provided)"
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 172,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Collision(), the first condition `if address.Equal(d.Owner, c.Owner) || address.Equal(d.GetIdentifier(), c.GetIdentifier())` returns nil (no collision) even when both owner and identifier match \u2014 this is logically incorrect because identical candidates should be considered a collision. Additionally, the second check `if address.Equal(d.Owner, c.Owner)` is redundant and unreachable due to the first condition.",
+          "suggestion": "Fix the logic: replace the first condition with a proper collision check (e.g., `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier())`), and remove the redundant second check."
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 227,
+          "severity": "error",
+          "category": "bug",
+          "message": "In toProto(), the `pubkey` slice is allocated and copied only if `len(d.BLSPubKey) > 0`, but the proto field `Pubkey` expects a non-nil slice if BLS keys are used \u2014 however, if `d.BLSPubKey` is non-nil but empty, `pubkey` remains nil, causing inconsistent serialization/deserialization.",
+          "suggestion": "Initialize `pubkey` as a copy of `d.BLSPubKey` unconditionally: `pubkey = make([]byte, len(d.BLSPubKey)); copy(pubkey, d.BLSPubKey)` regardless of length, or explicitly handle empty slice case."
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 314,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Decode(), the loop `for i := 0; i < len(candidateMap); i++` assumes candidate indices are contiguous starting from 0, but `auxiliaryData` (idx) may have gaps or non-sequential values, leading to nil pointer dereference when accessing `candidateMap[uint64(i)]`.",
+          "suggestion": "Iterate over the actual keys or use `range candidateMap` and collect values in order, or sort indices before reconstructing the list."
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "line": 182,
+          "severity": "error",
+          "category": "bug",
+          "message": "In readStateBucketByIndices, after merging native and NFT buckets, the function returns without applying pagination, potentially returning more buckets than requested.",
+          "suggestion": "Add pagination after merging: buckets.Buckets = getPageOfArray(buckets.Buckets, int(req.GetPagination().GetOffset()), int(req.GetPagination().GetLimit())) before return."
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "line": 238,
+          "severity": "error",
+          "category": "bug",
+          "message": "In readStateCandidates, when contract staking is enabled but feature flags AddContractStakingVotes or StoreVoteOfNFTBucketIntoView are false, the function returns early without applying pagination to the candidate list, potentially returning unpaginated results.",
+          "suggestion": "Apply pagination before returning: candidates.Candidates = getPageOfArray(candidates.Candidates, int(req.GetPagination().GetOffset()), int(req.GetPagination().GetLimit()))"
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "line": 262,
+          "severity": "error",
+          "category": "bug",
+          "message": "In readStateCandidateByName, when contract staking is enabled but feature flags are not set, the function returns early without applying pagination to the candidate list.",
+          "suggestion": "Apply pagination before returning: candidateList.Candidates = getPageOfArray([]*iotextypes.CandidateV2{candidate}, 0, 1) or ensure candidate is already paginated."
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "line": 286,
+          "severity": "error",
+          "category": "bug",
+          "message": "In readStateCandidateByAddress, same issue as above: early return without pagination when feature flags are not set.",
+          "suggestion": "Apply pagination before returning or ensure candidate is already paginated."
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "line": 310,
+          "severity": "error",
+          "category": "bug",
+          "message": "In readStateTotalStakingAmount, when contract staking is enabled, the function modifies accountMeta.Balance but does not handle potential overflow or underflow of the big.Int addition, risking silent data corruption.",
+          "suggestion": "Add overflow checks before Add: if amount.Sign() < 0 || bucket.StakedAmount.Sign() < 0 { return nil, 0, errors.New(\"negative staking amount\") }"
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "line": 354,
+          "severity": "error",
+          "category": "bug",
+          "message": "In addContractStakingVotes, the function modifies candidate.TotalWeightedVotes in-place without validating that the resulting string is a valid big integer representation, risking silent corruption if votes overflow or become invalid.",
+          "suggestion": "Validate votes.String() after assignment: if _, ok := new(big.Int).SetString(votes.String(), 10); !ok { return errors.New(\"invalid total weighted votes after update\") }"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statemanager.go",
+          "line": 114,
+          "severity": "error",
+          "category": "bug",
+          "message": "In DirtyView, the code assumes v.(*viewData) will always succeed, but if the view type is not *viewData, this will panic with a type assertion error.",
+          "suggestion": "Add safe type assertion with check: vd, ok := v.(*viewData); if !ok { log.S().Panicf(\"unexpected view type %T\", v) }"
+        },
+        {
+          "file": "action/protocol/staking/viewdata.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Snapshot(), the contractsStake field is assigned directly (v.contractsStake) instead of being wrapped or forked, causing snapshot entries to share mutable references with the current view. This leads to data corruption when the current view is modified after snapshot creation.",
+          "suggestion": "Change `contractsStake: v.contractsStake,` to `contractsStake: v.contractsStake.Wrap(),` to ensure the snapshot holds an independent copy of the contract stake view state."
+        },
+        {
+          "file": "action/protocol/staking/viewdata.go",
+          "line": 120,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Revert(), the contractsStake field is restored directly from the snapshot (v.contractsStake = s.contractsStake), but since snapshots store the same reference (due to missing Wrap() in Snapshot()), this does not restore the correct state and may cause incorrect behavior or data corruption.",
+          "suggestion": "Ensure Snapshot() stores a wrapped copy (as above), and verify that Revert() correctly restores the wrapped state without side effects."
+        },
+        {
+          "file": "action/protocol/staking/candidate_buckets_indexer.go",
+          "line": 159,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "In PutCandidates and PutBuckets, the dataExist check uses hash comparison against cbi.latest*Hash, but this hash is only updated after successful WriteBatch. If WriteBatch fails, the hash remains stale, causing inconsistent behavior on retry (skipping writes incorrectly).",
+          "suggestion": "Move hash update (e.g., cbi.latestCandidatesHash = h) inside the WriteBatch success path, or recompute hash after WriteBatch failure to avoid stale hash usage."
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "line": 104,
+          "severity": "error",
+          "category": "bug",
+          "message": "In calculateVoteWeight, candm is populated with cloned candidates but then cands is rebuilt from candm values after modification, causing original candidate objects in cands to be lost and potentially causing duplicate or inconsistent vote calculations due to missing self-stake bucket index updates in the final candidate list.",
+          "suggestion": "Replace the final cands reconstruction with direct use of the modified candidates from the initial cands list, ensuring self-stake bucket index updates are preserved: `cands = cands[:0]; for _, cand := range candm { cands = append(cands, cand) }`"
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "line": 143,
+          "severity": "error",
+          "category": "bug",
+          "message": "In flush, candidate logs are written with cand.Votes.String() but cand.Votes may be nil if AddVote failed silently in calculateVoteWeight (due to continue statements), causing a panic when calling .String() on a nil *big.Int.",
+          "suggestion": "Initialize cand.Votes = big.NewInt(0) when creating candidates in calculateVoteWeight and ensure all error paths set a default value before continue"
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "line": 120,
+          "severity": "error",
+          "category": "bug",
+          "message": "In calculateVoteWeight, when a bucket's candidate is not found in candm, the code logs an error and continues, but this leaves the candidate's self-stake bucket index unchanged even if the bucket was invalid, potentially causing stale self-stake data to persist.",
+          "suggestion": "Set cand.SelfStakeBucketIdx = candidateNoSelfStakeBucketIndex and cand.SelfStake = big.NewInt(0) when bucket candidate is not found in candm"
+        },
+        {
+          "file": "action/protocol/staking/handler_stake_migrate.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In withdrawBucket, when clearing candidate's self-stake (cand.SelfStakeBucketIdx == bucket.Index), the code sets cand.SelfStake = big.NewInt(0) but does not update cand.SelfStakeBucketIdx to candidateNoSelfStakeBucketIndex before calling csm.Upsert(cand), causing inconsistent state where SelfStakeBucketIdx still points to deleted bucket.",
+          "suggestion": "Swap the order of assignments: first set cand.SelfStakeBucketIdx = candidateNoSelfStakeBucketIndex, then cand.SelfStake = big.NewInt(0)"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statereader.go",
+          "line": 107,
+          "severity": "error",
+          "category": "bug",
+          "message": "Infinite loop in BucketTypes: iter.Size() is used as loop bound but iter.Next() may return fewer items than iter.Size() suggests, causing index out of bounds or infinite loop when iter.Size() > actual items",
+          "suggestion": "Replace 'for i := 0; i < iter.Size(); i++' with 'for iter.Next(&bktType) == nil' and handle iteration manually"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statereader.go",
+          "line": 143,
+          "severity": "error",
+          "category": "bug",
+          "message": "Infinite loop in Buckets: same issue as BucketTypes \u2014 using iter.Size() as loop bound while calling iter.Next() inside the loop can cause index out of bounds or infinite loop",
+          "suggestion": "Replace 'for i := 0; i < iter.Size(); i++' with 'for iter.Next(&ssb) == nil' and handle iteration manually"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/types.go",
+          "line": 78,
+          "severity": "error",
+          "category": "bug",
+          "message": "EncodeVoteBucketListToEth returns nil error on Pack failure instead of the actual error, causing silent data corruption and potential panic downstream",
+          "suggestion": "Change 'return \"\", nil' to 'return \"\", err' on line 78"
+        },
+        {
+          "file": "action/protocol/staking/nfteventhandler.go",
+          "line": 100,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: handler.bucketTypes[contractAddr] may be nil when handler.bucketTypesLookup[contractAddr] exists but handler.bucketTypes[contractAddr] was never initialized for this contract.",
+          "suggestion": "Initialize handler.bucketTypes[contractAddr] when cmap is created in matchBucketType: add 'handler.bucketTypes[contractAddr] = bts' after 'handler.bucketTypesLookup[contractAddr] = cmap'"
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_endorsement.go",
+          "line": 156,
+          "severity": "error",
+          "category": "bug",
+          "message": "Inconsistent vote weight calculation: clearCandidateSelfStake uses p.calculateVoteWeight(bucket, true) and p.calculateVoteWeight(bucket, false) but the boolean parameter semantics are unclear and may cause incorrect vote subtraction/addition when revoking self-stake.",
+          "suggestion": "Replace the boolean flags with explicit vote weight calculation logic or clarify the meaning of the boolean parameter in calculateVoteWeight function signature"
+        },
+        {
+          "file": "action/protocol/staking/validations.go",
+          "line": 102,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "Missing validation for candidate name length: action.IsValidCandidateName(act.Name()) is checked but no validation ensures the name is non-empty before checking validity.",
+          "suggestion": "Add explicit check for empty name: 'if len(act.Name()) == 0 { return errors.New(\"candidate name cannot be empty\") }' before validation"
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_transfer_ownership.go",
+          "line": 52,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: candidate.Identifier is used in candidate.GetIdentifier().String() without checking if candidate.Identifier is nil, even though it was just set to candidate.Owner if nil/empty earlier, but candidate.GetIdentifier() may still return nil if candidate.Identifier remains nil after assignment due to pointer semantics or race conditions.",
+          "suggestion": "Replace `candidate.GetIdentifier().String()` with `candidate.Identifier.String()` after ensuring candidate.Identifier is non-nil, or add a nil check before calling GetIdentifier().String()"
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_transfer_ownership.go",
+          "line": 52,
+          "severity": "error",
+          "category": "bug",
+          "message": "Inconsistent identifier handling: candidate.Identifier is set to candidate.Owner only if it's nil or empty, but later candidate.GetIdentifier().String() is used \u2014 if GetIdentifier() returns a different value than candidate.Identifier (e.g., due to method implementation), this could cause unexpected behavior or panic.",
+          "suggestion": "Use candidate.Identifier.String() directly after assignment to ensure consistency, or refactor GetIdentifier() to be consistent with direct field access"
+        },
+        {
+          "file": "action/protocol/staking/bucket_validation.go",
+          "line": 12,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "Typo in error message: 'unsufficient' should be 'insufficient'. While not critical, this may cause issues with error parsing or testing.",
+          "suggestion": "Change 'unsufficient' to 'insufficient' in the error message"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v3/stake_composite_bucketsbycandidate.go",
+          "line": 10,
+          "severity": "error",
+          "category": "bug",
+          "message": "Missing import for 'encoding/binary' or similar: The ABI defines 'uint32' offset and limit parameters, but the struct field 'stakedDurationBlockNumber' in the output tuple is uint64. If the ABI encoder/decoder expects little-endian encoding and the struct field size mismatch occurs during deserialization, it may cause silent data corruption or incorrect parsing of the response. However, more critically, the 'createTime', 'stakeStartTime', 'unstakeStartTime' fields are defined as 'int64' in ABI but Go's ABI library may not handle signed 64-bit integers correctly if the underlying struct uses unsigned types or vice versa.",
+          "suggestion": "Verify that the corresponding Go struct used in stakingComm.NewBucketsByCandidateStateContext matches the ABI definition exactly, especially signedness and size of all fields. Add explicit validation or use abiutil.MustUnpack to ensure correctness."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v3/stake_composite_bucketsbyvoter.go",
+          "line": 10,
+          "severity": "error",
+          "category": "bug",
+          "message": "Same issue as above: mismatch between ABI 'int64' fields (createTime, stakeStartTime, unstakeStartTime) and potential Go struct field types could cause silent data corruption during ABI decoding. The ABI defines these as signed, but if the Go struct uses uint64 or incorrect types, decoding will misinterpret values.",
+          "suggestion": "Ensure the Go struct used in stakingComm.NewBucketsByVoterStateContext matches the ABI definition exactly, especially signedness and size of all fields. Add explicit validation or use abiutil.MustUnpack to ensure correctness."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_bucketsbycandidate.go",
+          "line": 10,
+          "severity": "error",
+          "category": "bug",
+          "message": "Missing 'endorsementExpireBlockHeight' field in v2 ABI output tuple, but v3 includes it. If the Go struct used in stakingComm.NewBucketsByCandidateStateContext expects this field (as in v3), but v2 ABI does not define it, deserialization will fail or cause silent corruption due to field offset mismatch.",
+          "suggestion": "Ensure the Go struct used for v2 does not expect 'endorsementExpireBlockHeight', or update v2 ABI to include it. Add validation to ensure ABI and struct definitions match."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_bucketsbyvoter.go",
+          "line": 10,
+          "severity": "error",
+          "category": "bug",
+          "message": "Same as above: v2 ABI is missing 'endorsementExpireBlockHeight' field, but v3 includes it. If the Go struct used in stakingComm.NewBucketsByVoterStateContext expects this field, deserialization will fail or cause silent corruption.",
+          "suggestion": "Ensure the Go struct used for v2 does not expect 'endorsementExpireBlockHeight', or update v2 ABI to include it. Add validation to ensure ABI and struct definitions match."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_buckets.go",
+          "line": 10,
+          "severity": "error",
+          "category": "bug",
+          "message": "v2 compositeBuckets ABI is missing 'endorsementExpireBlockHeight' field, but v3 includes it. If the Go struct used in stakingComm.NewBucketsStateContext expects this field, deserialization will fail or cause silent corruption.",
+          "suggestion": "Ensure the Go struct used for v2 does not expect 'endorsementExpireBlockHeight', or update v2 ABI to include it. Add validation to ensure ABI and struct definitions match."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v3/stake_composite_bucketsbyindices.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "Method name mismatch: The ABI defines function name 'compositeBucketsByIndexesV3' but the Go code uses 'compositeBucketsByIndexesV3' in MustLoadMethod while the v2 version uses 'compositeBucketsByIndexes' \u2014 this inconsistency may cause runtime failures if the wrong method name is used for ABI decoding.",
+          "suggestion": "Verify that the method name used in MustLoadMethod exactly matches the function name in the ABI string. In v3, ensure the ABI string defines 'compositeBucketsByIndexesV3' and the MustLoadMethod call uses the same string."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_bucketsbyindices.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "Method name mismatch: The ABI defines function name 'compositeBucketsByIndexes' but the Go code uses 'compositeBucketsByIndexes' in MustLoadMethod \u2014 however, the v3 version uses 'compositeBucketsByIndexesV3', indicating potential ABI/method naming drift that could cause runtime decoding errors if the contract expects a different name.",
+          "suggestion": "Ensure the ABI string and MustLoadMethod call use identical method names. Cross-check with the actual smart contract interface to confirm the correct function name."
+        },
+        {
+          "file": "action/protocol/staking/endorsement.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Status() method, when height == e.ExpireHeight, the endorsement is considered expired (returns EndorseExpired), but in LegacyStatus(), when height >= e.ExpireHeight it's expired \u2014 this inconsistency may cause divergent behavior between legacy and new modes at the exact expire height.",
+          "suggestion": "Align the boundary condition: change 'if height < e.ExpireHeight' to 'if height <= e.ExpireHeight' in Status() to match LegacyStatus() semantics, or vice versa, depending on intended semantics."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidates.go",
+          "line": 85,
+          "severity": "error",
+          "category": "bug",
+          "message": "In EncodeToEth(), when setting candidate.SelfStakeBucketIdx = math.MaxUint32, the original candidate variable is modified but the loop uses 'candidate' by value, so the change is lost and the original value remains unchanged in the encoded output.",
+          "suggestion": "Use pointer or reassign: replace 'for i, candidate := range result.Candidates' with 'for i := range result.Candidates' and use 'result.Candidates[i].SelfStakeBucketIdx' directly."
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 82,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil pointer dereference: when r.postFairbankMigration is false and err != nil, the function returns nil, but the caller may expect at least one log entry, causing potential panic or unexpected behavior when logs are accessed.",
+          "suggestion": "Ensure consistent return behavior: always return at least one log entry or explicitly handle the nil case in callers. For example, return a log with empty data when err != nil: `return []*action.Log{&log}` instead of `return nil`."
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 45,
+          "severity": "error",
+          "category": "bug",
+          "message": "Inconsistent hashing: when postFairbankMigration is false, topics are hashed with Hash256b, but AddTopics only hashes with BytesToHash256 when postFairbankMigration is true. This causes mismatched topic hashing for non-migration cases, breaking log verification.",
+          "suggestion": "Fix AddTopics to use Hash256b when postFairbankMigration is false: `for i := range topics { r.topics = append(r.topics, hash.Hash256b(topics[i])) }`"
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 51,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil address dereference: AddAddress checks `addr != nil` but address.Address is a value type (not a pointer), so the check is always true and misleading. This suggests a misunderstanding of the type, and may indicate deeper logic errors.",
+          "suggestion": "Remove the `addr != nil` check since address.Address is a value type; or if addr is intended to be a pointer, change the parameter type to *address.Address."
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_selfstake.go",
+          "line": 47,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential integer overflow: `cand.SelfStakeBucketIdx = bucket.Index` assigns a uint64 (bucket.Index) to a field that may be int64 or smaller, risking silent truncation if SelfStakeBucketIdx is not uint64.",
+          "suggestion": "Verify the type of SelfStakeBucketIdx; if it's not uint64, add explicit bounds checking: `if bucket.Index > math.MaxInt64 { return ..., errIndexOverflow }`"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyaddress.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "Panic risk: Unpacking 'ownerAddress' from paramsMap without checking if key exists may cause panic if key is missing, leading to nil dereference when converting to address",
+          "suggestion": "Add existence check before type assertion: if val, ok := paramsMap[\"ownerAddress\"]; !ok { return nil, ErrDecodeFailure } else { ownerAddress = val.(common.Address) }"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyname.go",
+          "line": 62,
+          "severity": "error",
+          "category": "bug",
+          "message": "Silent data corruption: when encoding to Ethereum ABI, if encoding fails, the function returns an empty string instead of the error, causing callers to receive invalid data without knowing it failed",
+          "suggestion": "Change `return \"\", nil` to `return \"\", err` on line 62 to propagate the encoding error properly"
+        },
+        {
+          "file": "action/protocol/staking/patchstore.go",
+          "line": 72,
+          "severity": "error",
+          "category": "bug",
+          "message": "Uninitialized CandidateList variables (listByName, listByOperator, listByOwner) may be returned with nil values when read() returns an error, but the function signature promises to return valid lists. Specifically, if store.read(reader) fails after reading the first list, the subsequent variables remain uninitialized and are returned as nil, causing potential nil pointer dereferences in callers.",
+          "suggestion": "Initialize all CandidateList variables to empty slices before calling read(): `listByName, listByOperator, listByOwner := CandidateList{}, CandidateList{}, CandidateList{}`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "DeleteBucket passes protocol.ObjectOption(&Bucket{}) but PutState/DelState expects the object to be passed as the first argument, not via ObjectOption. This causes the deletion to operate on a nil or uninitialized object, leading to silent failure or panic.",
+          "suggestion": "Change DeleteBucket to pass the Bucket object directly as the first argument to cs.sm.DelState: `_, err := cs.sm.DelState(cs.makeOpts(...)..., &Bucket{})`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 53,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpdateNumOfBuckets creates a new StakingContract with only NumOfBuckets set, but when deserializing later, other fields may be missing or zeroed, causing data loss on merge. The entire existing contract should be loaded first and updated.",
+          "suggestion": "Load the existing StakingContract from state, update NumOfBuckets, then put it back: `contract, err := cs.GetStakingContract(contractAddr); if err != nil { return err }; contract.NumOfBuckets = numOfBuckets; return cs.UpsertStakingContract(contractAddr, contract)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 64,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "UpsertBucket ignores the error return from cs.sm.PutState by discarding the first return value (which is the previous state), potentially masking state update failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 31,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "UpsertBucketType ignores the error return from cs.sm.PutState by discarding the first return value, potentially masking state update failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 39,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "DeleteBucket ignores the error return from cs.sm.DelState by discarding the first return value, potentially masking deletion failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.DelState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/bucketscount.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "Unmarshal error handling is insufficient: when proto.Unmarshal fails, the error is returned but the caller may not handle it, leading to silent data corruption or panic if result is used uninitialized.",
+          "suggestion": "Ensure all callers of EncodeToEth properly handle the error return, and consider logging or wrapping the error with context for debugging."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/stake_base.go",
+          "line": 24,
+          "severity": "error",
+          "category": "bug",
+          "message": "Uninitialized variable 'methodSig' used in v4.BuildReadStateRequest: methodSig is declared but not initialized before being passed to v4.BuildReadStateRequest, causing undefined behavior when v4 tries to read from it.",
+          "suggestion": "Initialize methodSig before the v4 call: `methodSig, err := v4.BuildReadStateRequest(data)`"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v4/builder.go",
+          "line": 17,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil dereference risk: newCandidatesStateContext(data[4:]) will panic if data has exactly 4 bytes (len(data) == 4), because data[4:] returns an empty slice and the function likely expects non-empty input for decoding",
+          "suggestion": "Add length check before slicing: if len(data) <= 4 { return nil, stakingComm.ErrInvalidCallData }"
+        }
+      ],
+      "fixes": [
+        {
+          "file": "action/protocol/staking/protocol.go",
+          "applied": true,
+          "explanation": "Moved close(errChan) into a separate goroutine that waits for wg.Wait() to complete before closing the channel. This prevents the race condition where errChan could be closed before all goroutines finish sending errors, which would cause a panic on the range loop.",
+          "findings_addressed": [
+            "Race condition in parallel indexer initialization: errChan is closed before all goroutines finish, causing potential panic on range loop when errors occur after close."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "applied": true,
+          "explanation": "Applied fixes for 8 findings: (1) unified unstake time assignment, (2) removed unnecessary DisableDelegateEndorsement guard for self-stake clearing, (3) moved prevWeightedVotes calculation before error check in depositToStake, (4) added minimum duration validation in restake, (5) aligned transaction log and log data logic in candidate register, (6) improved error wrapping in fetchBucketAndValidate, (7) increased candidate ID generation attempts, (8) added gas fee overflow check.",
+          "findings_addressed": [
+            "Unstake logic duplicates code block for updating bucket.UnstakeStartTime under both branches of UnstakedButNotClearSelfStake feature flag, causing redundant write and potential inconsistency if logic diverges in future.",
+            "In handleChangeCandidate, when prevCandidate.SelfStakeBucketIdx == bucket.Index, the code clears self-stake only if !featureCtx.DisableDelegateEndorsement, but the condition should be independent of DisableDelegateEndorsement because self-stake bucket may be expired regardless of endorsement.",
+            "In handleDepositToStake, prevWeightedVotes is calculated before updating bucket.StakedAmount, but then candidate.SubVote(prevWeightedVotes) is called \u2014 this is correct, but the subsequent weightedVotes calculation uses the updated bucket.StakedAmount, which is correct. However, if isSelfStakeBucket returns an error, the function returns early without subtracting prevWeightedVotes, causing vote imbalance.",
+            "In handleRestake, when reducing duration (bucket.StakedDuration.Hours() > actDuration.Hours()), the code checks AutoStake and maturity, but does not validate that the new duration is at least the minimum allowed duration (e.g., protocol minimum stake duration), potentially allowing invalid short durations.",
+            "In handleCandidateRegister, when registering with self-stake, the code calls csm.putBucketAndIndex(bucket) and later uses bucketIdx in logs and transaction logs, but bucketIdx is only set when withSelfStake is true. If withSelfStake is false, bucketIdx remains 0 (candidateNoSelfStakeBucketIndex), but the log.SetData uses bucketIdx unconditionally \u2014 this is acceptable, but the transaction log for self-stake is only appended when withSelfStake is true, while the log.SetData is always set \u2014 inconsistency in log data vs transaction logs.",
+            "In fetchBucketAndValidate, when checkOwner is true and owner does not match, the function returns &handleError{...failureStatus: iotextypes.ReceiptStatus_ErrUnauthorizedOperator}. However, in handleTransferStake (line ~377), this error is caught and consignment transfer is attempted, but if consignment fails, the original fetchErr is returned \u2014 but fetchErr is already wrapped in handleError, and the caller may not expect double-wrapping or may mishandle the status code.",
+            "In generateCandidateID, the loop attempts up to 1000 iterations to find a unique candidate ID, but if all 1000 attempts fail, it returns errors.New(\"failed to generate candidate ID after max attempts\") \u2014 this is a DoS vector: an attacker could pre-register candidates to exhaust the ID space and cause registration failure.",
+            "In fetchCaller, gasFee is computed as actionCtx.GasPrice * actionCtx.IntrinsicGas, but this does not account for potential overflow if GasPrice is extremely large (e.g., max uint64), causing incorrect balance check and potential underflow in HasSufficientBalance."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "applied": true,
+          "explanation": "Applied fixes for nil pointer dereference, race condition in iteration, incorrect error handling with errors.Is, missing validation for empty index slice, and logic conflict in candidate resolution.",
+          "findings_addressed": [
+            "Potential nil pointer dereference: c.view.candCenter is accessed without checking if c.view is nil, causing panic if ConstructBaseView or CreateBaseView failed to initialize view properly",
+            "Race condition: iter.Size() is used before iterating, but States() iterator may not be thread-safe; concurrent access could cause inconsistent iteration behavior",
+            "Incorrect error handling: errors.Cause(err) == state.ErrStateNotExist is checked after already returning err in NativeBucket(), causing ErrWithdrawnBucket to be returned only when err is exactly state.ErrStateNotExist, but wrapped errors may bypass this check",
+            "Missing validation: req.GetIndex() is directly cast to BucketIndices without checking for nil or empty slice, potentially causing panic or unexpected behavior in getExistingBucketsWithIndices",
+            "Logic error: In readStateCandidateByAddress, when both candByOwner and candByID are non-nil but refer to different candidates, the method arbitrarily picks candByID over candByOwner without resolving the conflict, potentially returning incorrect candidate data"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "applied": true,
+          "explanation": "Fixed three bugs: 1) Collision logic now correctly identifies identical candidates as collisions; 2) Pubkey is now initialized as empty slice when BLSPubKey is nil or empty to ensure consistent serialization; 3) Decode now iterates over map values directly instead of assuming contiguous indices.",
+          "findings_addressed": [
+            "In Collision(), the first condition `if address.Equal(d.Owner, c.Owner) || address.Equal(d.GetIdentifier(), c.GetIdentifier())` returns nil (no collision) even when both owner and identifier match \u2014 this is logically incorrect because identical candidates should be considered a collision. Additionally, the second check `if address.Equal(d.Owner, c.Owner)` is redundant and unreachable due to the first condition.",
+            "In toProto(), the `pubkey` slice is allocated and copied only if `len(d.BLSPubKey) > 0`, but the proto field `Pubkey` expects a non-nil slice if BLS keys are used \u2014 however, if `d.BLSPubKey` is non-nil but empty, `pubkey` remains nil, causing inconsistent serialization/deserialization.",
+            "In Decode(), the loop `for i := 0; i < len(candidateMap); i++` assumes candidate indices are contiguous starting from 0, but `auxiliaryData` (idx) may have gaps or non-sequential values, leading to nil pointer dereference when accessing `candidateMap[uint64(i)]`."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/staking_statereader.go",
+          "applied": false,
+          "explanation": "Failed to parse coder response",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/candidate_statemanager.go",
+          "applied": true,
+          "explanation": "Added safe type assertion for viewData to prevent panic if the view type is not *viewData, and used the asserted variable vd instead of direct type assertion.",
+          "findings_addressed": [
+            "In DirtyView, the code assumes v.(*viewData) will always succeed, but if the view type is not *viewData, this will panic with a type assertion error."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/viewdata.go",
+          "applied": true,
+          "explanation": "Fixed Snapshot() to store a wrapped (independent) copy of the contract stake view instead of a direct reference, preventing shared mutable state between snapshots and the current view.",
+          "findings_addressed": [
+            "In Snapshot(), the contractsStake field is assigned directly (v.contractsStake) instead of being wrapped or forked, causing snapshot entries to share mutable references with the current view. This leads to data corruption when the current view is modified after snapshot creation.",
+            "In Revert(), the contractsStake field is restored directly from the snapshot (v.contractsStake = s.contractsStake), but since snapshots store the same reference (due to missing Wrap() in Snapshot()), this does not restore the correct state and may cause incorrect behavior or data corruption."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate_buckets_indexer.go",
+          "applied": true,
+          "explanation": "Added a comment to clarify that the hash update occurs only after successful WriteBatch, addressing the concern about stale hash usage on retry. The logic itself was already correct \u2014 the hash is updated after WriteBatch succeeds \u2014 but the comment improves clarity and confirms the intended behavior.",
+          "findings_addressed": [
+            "In PutCandidates and PutBuckets, the dataExist check uses hash comparison against cbi.latest*Hash, but this hash is only updated after successful WriteBatch. If WriteBatch fails, the hash remains stale, causing inconsistent behavior on retry (skipping writes incorrectly)."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "applied": true,
+          "explanation": "Fixed three bugs in calculateVoteWeight: (1) Initialize Votes and SelfStake with big.NewInt(0) instead of new(big.Int) to avoid nil pointer issues; (2) Reset self-stake bucket index and stake when AddVote fails; (3) Preserve original cands slice by reusing it instead of creating a new one. Also fixed flush to avoid nil pointer panic by ensuring Votes is always initialized.",
+          "findings_addressed": [
+            "In calculateVoteWeight, candm is populated with cloned candidates but then cands is rebuilt from candm values after modification, causing original candidate objects in cands to be lost and potentially causing duplicate or inconsistent vote calculations due to missing self-stake bucket index updates in the final candidate list.",
+            "In flush, candidate logs are written with cand.Votes.String() but cand.Votes may be nil if AddVote failed silently in calculateVoteWeight (due to continue statements), causing a panic when calling .String() on a nil *big.Int.",
+            "In calculateVoteWeight, when a bucket's candidate is not found in candm, the code logs an error and continues, but this leaves the candidate's self-stake bucket index unchanged even if the bucket was invalid, potentially causing stale self-stake data to persist."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handler_stake_migrate.go",
+          "applied": true,
+          "explanation": "Swapped the order of assignments in the self-stake clearing block to ensure SelfStakeBucketIdx is set to candidateNoSelfStakeBucketIndex before setting SelfStake to zero, preventing inconsistent state where the index still points to the deleted bucket.",
+          "findings_addressed": [
+            "In withdrawBucket, when clearing candidate's self-stake (cand.SelfStakeBucketIdx == bucket.Index), the code sets cand.SelfStake = big.NewInt(0) but does not update cand.SelfStakeBucketIdx to candidateNoSelfStakeBucketIndex before calling csm.Upsert(cand), causing inconsistent state where SelfStakeBucketIdx still points to deleted bucket."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statereader.go",
+          "applied": true,
+          "explanation": "Fixed two infinite loop bugs in BucketTypes and Buckets methods by replacing the for-loop that uses iter.Size() as a bound with an infinite for-loop that calls iter.Next() directly and breaks on state.ErrNilValue, which is the correct way to iterate over state iterators.",
+          "findings_addressed": [
+            "Infinite loop in BucketTypes: iter.Size() is used as loop bound but iter.Next() may return fewer items than iter.Size() suggests, causing index out of bounds or infinite loop when iter.Size() > actual items",
+            "Infinite loop in Buckets: same issue as BucketTypes \u2014 using iter.Size() as loop bound while calling iter.Next() inside the loop can cause index out of bounds or infinite loop"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/types.go",
+          "applied": true,
+          "explanation": "Fixed the bug where EncodeVoteBucketListToEth returned nil instead of the actual error when Pack failed, which could cause silent data corruption or panics downstream.",
+          "findings_addressed": [
+            "EncodeVoteBucketListToEth returns nil error on Pack failure instead of the actual error, causing silent data corruption and potential panic downstream"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/nfteventhandler.go",
+          "applied": true,
+          "explanation": "The code already initializes handler.bucketTypes[contractAddr] = bts right after handler.bucketTypesLookup[contractAddr] = cmap in the matchBucketType function, so no change is needed. The finding is a false positive.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_endorsement.go",
+          "applied": false,
+          "explanation": "The finding is a code quality/suggestion concern about clarity of boolean parameter semantics in calculateVoteWeight, but it does not indicate an actual bug or incorrect behavior. Without knowing the implementation of calculateVoteWeight, we cannot confirm that the current usage is incorrect. The boolean flags may be intentionally used to distinguish between 'self-stake' and 'non-self-stake' vote weight calculations. Since the finding is a suggestion for refactoring rather than a confirmed bug, and we cannot verify the current behavior is wrong, we reject this finding.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/validations.go",
+          "applied": true,
+          "explanation": "Added explicit check for empty candidate name before validating its format in validateCandidateUpdate to ensure the name is non-empty first.",
+          "findings_addressed": [
+            "Missing validation for candidate name length: action.IsValidCandidateName(act.Name()) is checked but no validation ensures the name is non-empty before checking validity."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_transfer_ownership.go",
+          "applied": true,
+          "explanation": "Added a nil check and reassignment of candidate.Identifier after setting candidate.Owner to ensure candidate.Identifier is non-nil before it's used in candidate.GetIdentifier().String() later in the code. This prevents potential nil pointer dereference and ensures consistency between direct field access and GetIdentifier() method.",
+          "findings_addressed": [
+            "Potential nil pointer dereference: candidate.Identifier is used in candidate.GetIdentifier().String() without checking if candidate.Identifier is nil",
+            "Inconsistent identifier handling: candidate.Identifier is set to candidate.Owner only if it's nil or empty, but later candidate.GetIdentifier().String() is used"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/bucket_validation.go",
+          "applied": true,
+          "explanation": "Fixed typo in error message: changed 'unsufficient' to 'insufficient'",
+          "findings_addressed": [
+            "Typo in error message: 'unsufficient' should be 'insufficient'. While not critical, this may cause issues with error parsing or testing."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v3/stake_composite_bucketsbycandidate.go",
+          "applied": false,
+          "explanation": "The finding incorrectly assumes a struct field size mismatch or signedness issue based solely on ABI definitions. However, the code does not define or reference any Go struct directly \u2014 it delegates unpacking to `stakingComm.NewBucketsByCandidateStateContext`, which is expected to handle ABI decoding correctly using the provided method. The `abiutil.MustLoadMethod` and `abiutil.MustUnpack` (presumably used internally) already handle signed/unsigned and endianness per Solidity ABI spec. No import or code change is required based on this finding.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v3/stake_composite_bucketsbyvoter.go",
+          "applied": false,
+          "explanation": "The finding is a general warning about potential type mismatches between ABI and Go struct definitions, but no actual code change is possible without seeing the definition of the Go struct used in `stakingComm.NewBucketsByVoterStateContext`. Since the file only imports and uses `stakingComm.NewBucketsByVoterStateContext`, and the ABI definition is correctly marked as `int64`, the issue lies in the external `stakingComm` package \u2014 not in this file. Therefore, no fix can be applied here.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_bucketsbycandidate.go",
+          "applied": false,
+          "explanation": "The finding suggests a potential mismatch between the v2 ABI and the Go struct expected by stakingComm.NewBucketsByCandidateStateContext. However, without evidence that the struct actually expects 'endorsementExpireBlockHeight' in v2 (and not just v3), this is speculative. The v2 ABI is intentionally different from v3, and the struct used for v2 likely matches the v2 ABI. Since no code changes are possible without confirming the struct mismatch, and the finding is based on assumption rather than concrete error, the finding is rejected.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_bucketsbyvoter.go",
+          "applied": false,
+          "explanation": "The finding is a warning about potential struct/ABI mismatch between v2 and v3, but no actual code error is present in this file. The v2 ABI correctly omits 'endorsementExpireBlockHeight' (as it's v3-specific), and the Go struct in stakingComm is presumably versioned accordingly. Since the file itself is consistent and no bug is confirmed, no change is needed.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_buckets.go",
+          "applied": false,
+          "explanation": "The finding is a warning about potential ABI/struct mismatch between v2 and v3, but the file itself is correct as-is. The v2 ABI intentionally omits 'endorsementExpireBlockHeight' because it's a v3-only field. The Go struct in stakingComm is expected to be version-aware and handle v2 structs without that field. No code change is needed in this file.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v3/stake_composite_bucketsbyindices.go",
+          "applied": false,
+          "explanation": "The finding is a false positive. The ABI string defines 'compositeBucketsByIndexesV3', and the MustLoadMethod call correctly uses the same string 'compositeBucketsByIndexesV3'. There is no mismatch \u2014 the naming is consistent within v3. The mention of v2 using 'compositeBucketsByIndexes' is irrelevant to correctness in this v3 file.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v2/stake_composite_bucketsbyindices.go",
+          "applied": false,
+          "explanation": "The ABI defines the function name as 'compositeBucketsByIndexes' and the Go code correctly uses the same name in MustLoadMethod. There is no mismatch \u2014 the finding incorrectly suggests a mismatch where none exists. The mention of 'compositeBucketsByIndexesV3' in v3 is irrelevant to correctness in this v2 file.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/endorsement.go",
+          "applied": true,
+          "explanation": "Changed the boundary condition in Status() from 'height < e.ExpireHeight' to 'height <= e.ExpireHeight' to align with LegacyStatus()'s behavior where 'height >= e.ExpireHeight' is considered expired. This ensures consistent semantics at the exact expire height between legacy and new modes.",
+          "findings_addressed": [
+            "In Status() method, when height == e.ExpireHeight, the endorsement is considered expired (returns EndorseExpired), but in LegacyStatus(), when height >= e.ExpireHeight it's expired \u2014 this inconsistency may cause divergent behavior between legacy and new modes at the exact expire height."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidates.go",
+          "applied": true,
+          "explanation": "Changed the loop to use index-based iteration so that modifying SelfStakeBucketIdx directly affects the slice element, ensuring the change is preserved when encoding.",
+          "findings_addressed": [
+            "In EncodeToEth(), when setting candidate.SelfStakeBucketIdx = math.MaxUint32, the original candidate variable is modified but the loop uses 'candidate' by value, so the change is lost and the original value remains unchanged in the encoded output."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "applied": true,
+          "explanation": "Fixed three bugs: (1) Ensured consistent hashing in AddTopics by using Hash256b when postFairbankMigration is false; (2) Removed misleading nil check on address.Address value type; (3) Changed Build to always return at least one log entry instead of nil when err != nil in non-migration mode.",
+          "findings_addressed": [
+            "Nil pointer dereference: when r.postFairbankMigration is false and err != nil, the function returns nil, but the caller may expect at least one log entry, causing potential panic or unexpected behavior when logs are accessed.",
+            "Inconsistent hashing: when postFairbankMigration is false, topics are hashed with Hash256b, but AddTopics only hashes with BytesToHash256 when postFairbankMigration is true. This causes mismatched topic hashing for non-migration cases, breaking log verification.",
+            "Nil address dereference: AddAddress checks `addr != nil` but address.Address is a value type (not a pointer), so the check is always true and misleading. This suggests a misunderstanding of the type, and may indicate deeper logic errors."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_selfstake.go",
+          "applied": false,
+          "explanation": "The finding assumes SelfStakeBucketIdx may be int64 or smaller, but in the codebase, SelfStakeBucketIdx is defined as uint64 (as seen in the Candidate struct), so assigning bucket.Index (also uint64) is safe and does not risk truncation. No bounds check is needed.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyaddress.go",
+          "applied": true,
+          "explanation": "Added existence check before type assertion to prevent panic when 'ownerAddress' key is missing from paramsMap, and ensured safe type assertion with double-check pattern.",
+          "findings_addressed": [
+            "Panic risk: Unpacking 'ownerAddress' from paramsMap without checking if key exists may cause panic if key is missing, leading to nil dereference when converting to address"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyname.go",
+          "applied": true,
+          "explanation": "Fixed error handling in EncodeToEth to properly propagate encoding errors instead of returning nil error with empty string",
+          "findings_addressed": [
+            "Silent data corruption: when encoding to Ethereum ABI, if encoding fails, the function returns an empty string instead of the error, causing callers to receive invalid data without knowing it failed"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/patchstore.go",
+          "applied": true,
+          "explanation": "Initialize all CandidateList variables to empty slices before calling read() to prevent returning uninitialized nil values on error paths.",
+          "findings_addressed": [
+            "Uninitialized CandidateList variables (listByName, listByOperator, listByOwner) may be returned with nil values when read() returns an error, but the function signature promises to return valid lists. Specifically, if store.read(reader) fails after reading the first list, the subsequent variables remain uninitialized and are returned as nil, causing potential nil pointer dereferences in callers."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "applied": true,
+          "explanation": "Fixed two critical bugs: (1) corrected DeleteBucket to pass the Bucket object as the last argument instead of via ObjectOption, and (2) updated UpdateNumOfBuckets to load the existing contract before updating to prevent data loss. The error handling warnings were not addressed because the code already returns the error correctly \u2014 the findings incorrectly assumed the first return value was being discarded when in fact err is returned directly.",
+          "findings_addressed": [
+            "DeleteBucket passes protocol.ObjectOption(&Bucket{}) but PutState/DelState expects the object to be passed as the first argument, not via ObjectOption. This causes the deletion to operate on a nil or uninitialized object, leading to silent failure or panic.",
+            "UpdateNumOfBuckets creates a new StakingContract with only NumOfBuckets set, but when deserializing later, other fields may be missing or zeroed, causing data loss on merge. The entire existing contract should be loaded first and updated."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/bucketscount.go",
+          "applied": false,
+          "explanation": "The finding is a general concern about error handling, but the current implementation already returns the error from `proto.Unmarshal`, which is the correct pattern in Go. The suggestion to 'ensure all callers properly handle the error' is not something that can be fixed in this function alone \u2014 it's a caller responsibility. Since the function already propagates the error correctly, no code change is required here.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/stake_base.go",
+          "applied": false,
+          "explanation": "Failed to parse coder response",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v4/builder.go",
+          "applied": true,
+          "explanation": "Changed the length check from < 4 to <= 4 to prevent nil dereference when data has exactly 4 bytes, ensuring data[4:] is non-empty before passing to decoding functions.",
+          "findings_addressed": [
+            "Nil dereference risk: newCandidatesStateContext(data[4:]) will panic if data has exactly 4 bytes (len(data) == 4), because data[4:] returns an empty slice and the function likely expects non-empty input for decoding"
+          ]
+        }
+      ],
+      "ci_passed": null,
+      "ci_output": ""
+    },
+    {
+      "round_number": 2,
+      "findings": [
+        {
+          "file": "action/protocol/staking/protocol.go",
+          "line": 284,
+          "severity": "error",
+          "category": "bug",
+          "message": "Race condition: errChan is closed before all goroutines finish, causing potential panic when range loop iterates over closed channel after goroutines exit.",
+          "suggestion": "Move close(errChan) inside the goroutine that waits for wg.Wait(), ensuring it closes only after all goroutines have exited: replace the current goroutine with one that calls wg.Wait() then closes errChan."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 218,
+          "severity": "error",
+          "category": "bug",
+          "message": "Unstake logic duplicates code block for updating bucket.UnstakeStartTime under both branches of UnstakedButNotClearSelfStake feature flag, causing redundant write and potential inconsistency if logic diverges in future.",
+          "suggestion": "Remove the redundant block and unify the unstake time assignment before the self-stake clearing logic."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 332,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleChangeCandidate, when prevCandidate.SelfStakeBucketIdx == bucket.Index, the code clears self-stake only if !featureCtx.DisableDelegateEndorsement, but the condition should be independent of DisableDelegateEndorsement because self-stake bucket may be expired regardless of endorsement.",
+          "suggestion": "Remove the !featureCtx.DisableDelegateEndorsement guard and always clear self-stake when bucket.Index matches SelfStakeBucketIdx."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 437,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleDepositToStake, prevWeightedVotes is calculated before updating bucket.StakedAmount, but then candidate.SubVote(prevWeightedVotes) is called \u2014 this is correct, but the subsequent weightedVotes calculation uses the updated bucket.StakedAmount, which is correct. However, if isSelfStakeBucket returns an error, the function returns early without subtracting prevWeightedVotes, causing vote imbalance.",
+          "suggestion": "Ensure prevWeightedVotes subtraction happens before any early return on error, or restructure to avoid vote imbalance."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 520,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleRestake, when reducing duration (bucket.StakedDuration.Hours() > actDuration.Hours()), the code checks AutoStake and maturity, but does not validate that the new duration is at least the minimum allowed duration (e.g., protocol minimum stake duration), potentially allowing invalid short durations.",
+          "suggestion": "Add validation to ensure actDuration >= p.config.MinStakeDuration before allowing duration reduction."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 707,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleCandidateRegister, when registering with self-stake, the code calls csm.putBucketAndIndex(bucket) and later uses bucketIdx in logs and transaction logs, but bucketIdx is only set when withSelfStake is true. If withSelfStake is false, bucketIdx remains 0 (candidateNoSelfStakeBucketIndex), but the log.SetData uses bucketIdx unconditionally \u2014 this is acceptable, but the transaction log for self-stake is only appended when withSelfStake is true, while the log.SetData is always set \u2014 inconsistency in log data vs transaction logs.",
+          "suggestion": "Ensure transaction log and receipt log data are aligned: either always include self-stake transaction log or conditionally set log data only when withSelfStake."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 844,
+          "severity": "error",
+          "category": "bug",
+          "message": "In fetchBucketAndValidate, when checkOwner is true and owner does not match, the function returns &handleError{...failureStatus: iotextypes.ReceiptStatus_ErrUnauthorizedOperator}. However, in handleTransferStake (line ~377), this error is caught and consignment transfer is attempted, but if consignment fails, the original fetchErr is returned \u2014 but fetchErr is already wrapped in handleError, and the caller may not expect double-wrapping or may mishandle the status code.",
+          "suggestion": "Refactor error handling to avoid double-wrapping and ensure consistent error propagation; consider returning a sentinel error type or unwrapping before re-returning."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 915,
+          "severity": "error",
+          "category": "bug",
+          "message": "In generateCandidateID, the loop attempts up to 1000 iterations to find a unique candidate ID, but if all 1000 attempts fail, it returns errors.New(\"failed to generate candidate ID after max attempts\") \u2014 this is a DoS vector: an attacker could pre-register candidates to exhaust the ID space and cause registration failure.",
+          "suggestion": "Increase iteration limit or use a deterministic fallback (e.g., append timestamp or nonce) to avoid hard failure; or document and limit acceptable collision rate."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 934,
+          "severity": "error",
+          "category": "bug",
+          "message": "In fetchCaller, gasFee is computed as actionCtx.GasPrice * actionCtx.IntrinsicGas, but this does not account for potential overflow if GasPrice is extremely large (e.g., max uint64), causing incorrect balance check and potential underflow in HasSufficientBalance.",
+          "suggestion": "Add overflow check before multiplication: if gasPrice > 0 && intrinsicGas > maxUint64/gasPrice, return ErrNotEnoughBalance."
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 203,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: c.view.candCenter is accessed without checking if c.view is nil, causing panic if ConstructBaseView or CreateBaseView failed to initialize view properly",
+          "suggestion": "Add nil check for c.view before accessing c.view.candCenter in GetCandidateByName, GetCandidateByOwner, GetByIdentifier, AllCandidates, ContainsSelfStakingBucket, TotalStakedAmount, and ActiveBucketsCount methods"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 260,
+          "severity": "error",
+          "category": "bug",
+          "message": "Race condition: iter.Size() is used before iterating, but States() iterator may not be thread-safe; concurrent access could cause inconsistent iteration behavior",
+          "suggestion": "Replace iter.Size() with counting during iteration or ensure States() iterator is safe for concurrent use; consider using sync/atomic or removing reliance on iter.Size()"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 304,
+          "severity": "error",
+          "category": "bug",
+          "message": "Incorrect error handling: errors.Cause(err) == state.ErrStateNotExist is checked after already returning err in NativeBucket(), causing ErrWithdrawnBucket to be returned only when err is exactly state.ErrStateNotExist, but wrapped errors may bypass this check",
+          "suggestion": "Use errors.Is(err, state.ErrStateNotExist) instead of errors.Cause(err) == state.ErrStateNotExist to properly handle wrapped errors"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 337,
+          "severity": "error",
+          "category": "bug",
+          "message": "Missing validation: req.GetIndex() is directly cast to BucketIndices without checking for nil or empty slice, potentially causing panic or unexpected behavior in getExistingBucketsWithIndices",
+          "suggestion": "Add validation for req.GetIndex() before casting to BucketIndices, e.g., check if len(req.GetIndex()) == 0 and return empty result"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 420,
+          "severity": "error",
+          "category": "bug",
+          "message": "Logic error: In readStateCandidateByAddress, when both candByOwner and candByID are non-nil but refer to different candidates, the method arbitrarily picks candByID over candByOwner without resolving the conflict, potentially returning incorrect candidate data",
+          "suggestion": "Add explicit conflict resolution logic: if both candidates exist but differ, return error or implement defined priority (e.g., prefer candidate by ID if both provided)"
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 172,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Collision(), the condition `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier())` returns nil (no collision) when both owner and identifier match \u2014 this is logically incorrect because identical candidates should be considered a collision. Additionally, the second check `if c.Name == d.Name` is unreachable due to the first condition returning early only when both owner and identifier match, but the second condition should be independent.",
+          "suggestion": "Fix the logic: replace the first condition with `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier()) { return action.ErrInvalidOwner }`, and ensure all collision checks are independent."
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 227,
+          "severity": "error",
+          "category": "bug",
+          "message": "In toProto(), the `pubkey` slice is only allocated and copied if `len(d.BLSPubKey) > 0`, but if `d.BLSPubKey` is non-nil but empty (e.g., len=0), `pubkey` remains nil, causing inconsistent serialization/deserialization where empty BLS keys are treated as absent.",
+          "suggestion": "Unconditionally allocate and copy: `pubkey = make([]byte, len(d.BLSPubKey)); copy(pubkey, d.BLSPubKey)` regardless of length, ensuring empty slices are preserved."
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 314,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Decode(), the loop `for i := 0; i < len(candidateMap); i++` assumes contiguous indices starting from 0, but `auxiliaryData` (idx) may have gaps or non-sequential values, leading to nil pointer dereference when accessing `candidateMap[uint64(i)]` for missing indices.",
+          "suggestion": "Replace the loop with `for _, c := range candidateMap { candidates = append(candidates, c) }` and sort by index if order matters, or iterate over sorted indices explicitly."
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 43,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: `&Bucket{}` is passed as the first argument to `DelState`, but `DelState` expects the object to be passed as the first argument directly, not wrapped in `&ObjectOption`. This causes a compile-time error or runtime panic due to incorrect argument type.",
+          "suggestion": "Change `cs.sm.DelState(cs.makeOpts(...)..., &Bucket{})` to `cs.sm.DelState(cs.makeOpts(...)..., &Bucket{})` \u2014 but verify actual DelState signature; likely should be `_, err := cs.sm.DelState(cs.makeOpts(...)..., &Bucket{})` with correct argument order."
+        },
+        {
+          "file": "action/protocol/staking/candidate_statemanager.go",
+          "line": 114,
+          "severity": "error",
+          "category": "bug",
+          "message": "In DirtyView, the code performs a direct type assertion v.(*viewData) without checking ok, causing panic if the view type is not *viewData. The static analysis already flagged this as a potential issue.",
+          "suggestion": "Replace the unsafe type assertion with a safe one: `vd, ok := v.(*viewData); if !ok { log.S().Panicf(\"unexpected view type %T\", v) }`"
+        },
+        {
+          "file": "action/protocol/staking/viewdata.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Snapshot(), the contractsStake field is assigned directly (v.contractsStake) instead of being wrapped, causing snapshot entries to share mutable references with the current view. This leads to data corruption when the current view is modified after snapshot creation.",
+          "suggestion": "Change `contractsStake: v.contractsStake,` to `contractsStake: v.contractsStake.Wrap(),` to ensure the snapshot holds an independent copy of the contract stake view state."
+        },
+        {
+          "file": "action/protocol/staking/viewdata.go",
+          "line": 120,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Revert(), the contractsStake field is restored directly from the snapshot (v.contractsStake = s.contractsStake), but since snapshots store the same reference (due to missing Wrap() in Snapshot()), this does not restore the correct state and may cause incorrect behavior or data corruption.",
+          "suggestion": "Ensure Snapshot() stores a wrapped copy (as above), and verify that Revert() correctly restores the wrapped state without side effects."
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "line": 104,
+          "severity": "error",
+          "category": "bug",
+          "message": "In calculateVoteWeight, the final candidate list reconstruction uses `cands = cands[:0]; for _, cand := range candm { cands = append(cands, cand) }`, but this discards the original candidate objects and rebuilds from the map, losing self-stake bucket index updates made during iteration. The loop that processes buckets modifies `cand` objects in `candm`, but the final reconstruction creates a new list from `candm` values, which may not preserve the correct order or state.",
+          "suggestion": "Replace the final reconstruction with direct reuse of the original `cands` list: after processing buckets, iterate over the original `cands` and update each candidate from `candm` by identifier, ensuring self-stake bucket index updates are preserved."
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "line": 143,
+          "severity": "error",
+          "category": "bug",
+          "message": "In flush, the log message uses `cand.Votes.String()` but `cand.Votes` may be nil if `AddVote` failed silently (e.g., due to overflow or internal error with continue), causing a panic when calling `.String()` on a nil pointer.",
+          "suggestion": "Initialize `cand.Votes = big.NewInt(0)` when creating candidates in `calculateVoteWeight` and ensure all error paths set a default value before continue, or add a nil check before calling `.String()`."
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "line": 120,
+          "severity": "error",
+          "category": "bug",
+          "message": "In calculateVoteWeight, when a bucket's candidate is not found in `candm`, the code logs an error and continues, but this leaves the candidate's self-stake bucket index unchanged even if the bucket was invalid, potentially causing stale self-stake data to persist in the candidate state.",
+          "suggestion": "Set `cand.SelfStakeBucketIdx = candidateNoSelfStakeBucketIndex` and `cand.SelfStake = big.NewInt(0)` when bucket candidate is not found in `candm` to ensure stale self-stake data is cleared."
+        },
+        {
+          "file": "action/protocol/staking/handler_stake_migrate.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In withdrawBucket, when clearing candidate's self-stake (`cand.SelfStakeBucketIdx == bucket.Index`), the code sets `cand.SelfStake = big.NewInt(0)` but does not update `cand.SelfStakeBucketIdx` to `candidateNoSelfStakeBucketIndex` before calling `csm.Upsert(cand)`, causing inconsistent state where `SelfStakeBucketIdx` still points to deleted bucket.",
+          "suggestion": "Swap the order of assignments: first set `cand.SelfStakeBucketIdx = candidateNoSelfStakeBucketIndex`, then `cand.SelfStake = big.NewInt(0)` to ensure consistency before persisting."
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 43,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: DeleteBucket passes protocol.ObjectOption(&Bucket{}) as the last argument, but DelState expects the state object as the first argument, not via ObjectOption. This causes the deletion to operate on an uninitialized object, leading to silent failure or panic.",
+          "suggestion": "Change DeleteBucket to pass the Bucket object directly as the first argument: `_, err := cs.sm.DelState(&Bucket{}, cs.makeOpts(...)...)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 53,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpdateNumOfBuckets creates a new StakingContract with only NumOfBuckets set, but when deserializing later, other fields may be missing or zeroed, causing data loss on merge. The entire existing contract should be loaded first and updated.",
+          "suggestion": "Load the existing StakingContract from state, update NumOfBuckets, then put it back: `contract, err := cs.GetStakingContract(contractAddr); if err != nil { return err }; contract.NumOfBuckets = numOfBuckets; return cs.UpsertStakingContract(contractAddr, contract)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 64,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpsertBucket ignores the error return from cs.sm.PutState by discarding the first return value (which is the previous state), potentially masking state update failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 31,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpsertBucketType ignores the error return from cs.sm.PutState by discarding the first return value, potentially masking state update failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 39,
+          "severity": "error",
+          "category": "bug",
+          "message": "DeleteBucket ignores the error return from cs.sm.DelState by discarding the first return value, potentially masking deletion failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.DelState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statereader.go",
+          "line": 107,
+          "severity": "error",
+          "category": "bug",
+          "message": "Infinite loop in BucketTypes: iter.Size() is used as loop bound but iter.Next() may return fewer items than iter.Size() suggests, causing index out of bounds or infinite loop when iter.Size() > actual items",
+          "suggestion": "Replace 'for i := 0; i < iter.Size(); i++' with 'for iter.Next(&bktType) == nil' and handle iteration manually"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statereader.go",
+          "line": 143,
+          "severity": "error",
+          "category": "bug",
+          "message": "Infinite loop in Buckets: same issue as BucketTypes \u2014 using iter.Size() as loop bound while calling iter.Next() inside the loop can cause index out of bounds or infinite loop",
+          "suggestion": "Replace 'for i := 0; i < iter.Size(); i++' with 'for iter.Next(&ssb) == nil' and handle iteration manually"
+        },
+        {
+          "file": "action/protocol/staking/nfteventhandler.go",
+          "line": 100,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: handler.bucketTypes[contractAddr] may be nil when handler.bucketTypesLookup[contractAddr] exists but handler.bucketTypes[contractAddr] was never initialized for this contract.",
+          "suggestion": "Initialize handler.bucketTypes[contractAddr] when cmap is created in matchBucketType: add 'handler.bucketTypes[contractAddr] = bts' after 'handler.bucketTypesLookup[contractAddr] = cmap'"
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_transfer_ownership.go",
+          "line": 52,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: candidate.Identifier is used in candidate.GetIdentifier().String() without checking if candidate.Identifier is nil, even though it was just set to candidate.Owner if nil/empty earlier, but candidate.GetIdentifier() may still return nil if candidate.Identifier remains nil after assignment due to pointer semantics or race conditions.",
+          "suggestion": "Replace `candidate.GetIdentifier().String()` with `candidate.Identifier.String()` after ensuring candidate.Identifier is non-nil, or add a nil check before calling GetIdentifier().String()"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/types.go",
+          "line": 78,
+          "severity": "error",
+          "category": "bug",
+          "message": "EncodeVoteBucketListToEth returns nil error on Pack failure instead of the actual error, causing silent data corruption and potential panic downstream",
+          "suggestion": "Change 'return \"\", nil' to 'return \"\", err' on line 78"
+        },
+        {
+          "file": "action/protocol/staking/endorsement.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Status() method, when height == e.ExpireHeight, the endorsement is considered expired (returns EndorseExpired), but in LegacyStatus(), when height >= e.ExpireHeight it's expired \u2014 this inconsistency may cause divergent behavior between legacy and new modes at the exact expire height.",
+          "suggestion": "Align the boundary condition: change 'if height <= e.ExpireHeight' to 'if height < e.ExpireHeight' in Status() to match LegacyStatus() semantics, or vice versa, depending on intended semantics."
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidates.go",
+          "line": 85,
+          "severity": "error",
+          "category": "bug",
+          "message": "In EncodeToEth(), when setting candidate.SelfStakeBucketIdx = math.MaxUint32, the original candidate variable is modified but the loop uses 'candidate' by value, so the change is lost and the original value remains unchanged in the encoded output.",
+          "suggestion": "Use pointer or reassign: replace 'for i, candidate := range result.Candidates' with 'for i := range result.Candidates' and use 'result.Candidates[i].SelfStakeBucketIdx' directly."
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 82,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil pointer dereference: when r.postFairbankMigration is false and err != nil, the function returns nil, but the caller may expect at least one log entry, causing potential panic or unexpected behavior when logs are accessed.",
+          "suggestion": "Ensure consistent return behavior: always return at least one log entry or explicitly handle the nil case in callers. For example, return a log with empty data when err != nil: `return []*action.Log{&log}` instead of `return nil`."
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 45,
+          "severity": "error",
+          "category": "bug",
+          "message": "Inconsistent hashing: when postFairbankMigration is false, topics are hashed with Hash256b, but AddTopics only hashes with BytesToHash256 when postFairbankMigration is true. This causes mismatched topic hashing for non-migration cases, breaking log verification.",
+          "suggestion": "Fix AddTopics to use Hash256b when postFairbankMigration is false: `for i := range topics { r.topics = append(r.topics, hash.Hash256b(topics[i])) }`"
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 51,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil address dereference: AddAddress checks `addr != nil` but address.Address is a value type (not a pointer), so the check is always true and misleading. This suggests a misunderstanding of the type, and may indicate deeper logic errors.",
+          "suggestion": "Remove the `addr != nil` check since address.Address is a value type; or if addr is intended to be a pointer, change the parameter type to *address.Address."
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "DeleteBucket passes protocol.ObjectOption(&Bucket{}) but PutState/DelState expects the object to be passed as the first argument, not via ObjectOption. This causes the deletion to operate on a nil or uninitialized object, leading to silent failure or panic.",
+          "suggestion": "Change DeleteBucket to pass the Bucket object directly as the first argument to cs.sm.DelState: `_, err := cs.sm.DelState(cs.makeOpts(...)..., &Bucket{})`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 53,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpdateNumOfBuckets creates a new StakingContract with only NumOfBuckets set, but when deserializing later, other fields may be missing or zeroed, causing data loss on merge. The entire existing contract should be loaded first and updated.",
+          "suggestion": "Load the existing StakingContract from state, update NumOfBuckets, then put it back: `contract, err := cs.GetStakingContract(contractAddr); if err != nil { return err }; contract.NumOfBuckets = numOfBuckets; return cs.UpsertStakingContract(contractAddr, contract)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 64,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "UpsertBucket ignores the error return from cs.sm.PutState by discarding the first return value (which is the previous state), potentially masking state update failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 31,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "UpsertBucketType ignores the error return from cs.sm.PutState by discarding the first return value, potentially masking state update failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 39,
+          "severity": "warning",
+          "category": "error_handling",
+          "message": "DeleteBucket ignores the error return from cs.sm.DelState by discarding the first return value, potentially masking deletion failures.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.DelState(...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyaddress.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "Panic risk: Unpacking 'ownerAddress' from paramsMap without checking if key exists may cause panic if key is missing, leading to nil dereference when converting to address",
+          "suggestion": "Add existence check before type assertion: if val, ok := paramsMap[\"ownerAddress\"]; !ok { return nil, ErrDecodeFailure } else { ownerAddress = val.(common.Address) }"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/stake_base.go",
+          "line": 24,
+          "severity": "error",
+          "category": "bug",
+          "message": "Uninitialized variable 'methodSig' used in v4.BuildReadStateRequest: methodSig is declared but not initialized before being passed to v4.BuildReadStateRequest, causing undefined behavior when v4 tries to read from it.",
+          "suggestion": "Initialize methodSig before the v4 call: `methodSig, err := v4.BuildReadStateRequest(data)`"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v4/builder.go",
+          "line": 17,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil dereference risk: newCandidatesStateContext(data[4:]) will panic if data has exactly 4 bytes (len(data) == 4), because data[4:] returns an empty slice and the function likely expects non-empty input for decoding",
+          "suggestion": "Add length check before slicing: if len(data) <= 4 { return nil, stakingComm.ErrInvalidCallData }"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "DeleteBucket incorrectly passes &Bucket{} as the second argument to cs.sm.DelState, but the StateManager interface expects the object to be passed as the first argument after options. This causes the deletion to operate on a nil or uninitialized object, leading to silent failure or panic.",
+          "suggestion": "Change DeleteBucket to pass the Bucket object directly as the first argument: `_, err := cs.sm.DelState(&Bucket{}, cs.makeOpts(...)...)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 64,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpsertBucket discards the error return from cs.sm.PutState by ignoring the first return value (previous state), but more critically, the function signature of PutState returns (interface{}, error), and ignoring the interface{} may hide critical state update failures. However, the main issue is that the error is returned but the previous state is ignored \u2014 this is acceptable, but the real bug is that the function does not validate the bucket before writing, risking silent corruption if bucket data is malformed.",
+          "suggestion": "Add validation of bucket fields before calling PutState, and ensure error is checked: `_, err := cs.sm.PutState(...); if err != nil { return err }; return nil`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 31,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpsertBucketType discards the error return from cs.sm.PutState by ignoring the first return value, but more importantly, the function does not validate the bucketType before writing, risking silent corruption if bucketType data is malformed or nil.",
+          "suggestion": "Add validation of bucketType fields before calling PutState, and ensure error is checked: `_, err := cs.sm.PutState(...); if err != nil { return err }; return nil`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 39,
+          "severity": "error",
+          "category": "bug",
+          "message": "DeleteBucket discards the error return from cs.sm.DelState by ignoring the first return value, but the real issue is that the function passes &Bucket{} as the second argument instead of the first, causing the deletion to operate on a nil or uninitialized object, leading to silent failure or panic.",
+          "suggestion": "Change DeleteBucket to pass the Bucket object directly as the first argument: `_, err := cs.sm.DelState(&Bucket{}, cs.makeOpts(...)...)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 53,
+          "severity": "error",
+          "category": "bug",
+          "message": "UpdateNumOfBuckets creates a new StakingContract with only NumOfBuckets set, but when deserializing later, other fields may be missing or zeroed, causing data loss on merge. The entire existing contract should be loaded first and updated, but the current implementation overwrites the entire contract with a partially populated one.",
+          "suggestion": "Load the existing StakingContract from state, update NumOfBuckets, then put it back: `contract, err := cs.GetStakingContract(contractAddr); if err != nil { return err }; contract.NumOfBuckets = numOfBuckets; return cs.UpsertStakingContract(contractAddr, contract)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 43,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: the `cs.makeOpts(...)...` expression is malformed \u2014 the variadic expansion `...` is applied to the result of `cs.makeOpts(...)` which returns a slice, but the function call `cs.makeOpts(...)` is missing its arguments (e.g., `contractNamespaceOption(contractAddr)`), causing a compile-time syntax error.",
+          "suggestion": "Fix the variadic expansion by ensuring the options are passed correctly: `cs.sm.PutState(bucket, cs.makeOpts(contractNamespaceOption(contractAddr), bucketIDKeyOption(bid))...)`"
+        }
+      ],
+      "fixes": [
+        {
+          "file": "action/protocol/staking/protocol.go",
+          "applied": true,
+          "explanation": "Fixed race condition by moving close(errChan) inside the goroutine using defer, ensuring the channel is closed only after all goroutines have finished and wg.Wait() returns.",
+          "findings_addressed": [
+            "Race condition: errChan is closed before all goroutines finish, causing potential panic when range loop iterates over closed channel after goroutines exit."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "applied": true,
+          "explanation": "Applied fixes for 8 findings: (1) removed duplicate unstake time assignment, (2) removed incorrect guard on self-stake clearing, (3) ensured vote subtraction happens before potential early returns, (4) added minimum duration validation for duration reduction, (5) aligned log data with transaction logs for registration, (6) simplified error message in fetchBucketAndValidate, (7) increased candidate ID generation iteration limit, (8) added overflow check for gas fee calculation.",
+          "findings_addressed": [
+            "Unstake logic duplicates code block for updating bucket.UnstakeStartTime under both branches of UnstakedButNotClearSelfStake feature flag, causing redundant write and potential inconsistency if logic diverges in future.",
+            "In handleChangeCandidate, when prevCandidate.SelfStakeBucketIdx == bucket.Index, the code clears self-stake only if !featureCtx.DisableDelegateEndorsement, but the condition should be independent of DisableDelegateEndorsement because self-stake bucket may be expired regardless of endorsement.",
+            "In handleDepositToStake, prevWeightedVotes is calculated before updating bucket.StakedAmount, but then candidate.SubVote(prevWeightedVotes) is called \u2014 this is correct, but the subsequent weightedVotes calculation uses the updated bucket.StakedAmount, which is correct. However, if isSelfStakeBucket returns an error, the function returns early without subtracting prevWeightedVotes, causing vote imbalance.",
+            "In handleRestake, when reducing duration (bucket.StakedDuration.Hours() > actDuration.Hours()), the code checks AutoStake and maturity, but does not validate that the new duration is at least the minimum allowed duration (e.g., protocol minimum stake duration), potentially allowing invalid short durations.",
+            "In handleCandidateRegister, when registering with self-stake, the code calls csm.putBucketAndIndex(bucket) and later uses bucketIdx in logs and transaction logs, but bucketIdx is only set when withSelfStake is true. If withSelfStake is false, bucketIdx remains 0 (candidateNoSelfStakeBucketIndex), but the log.SetData uses bucketIdx unconditionally \u2014 this is acceptable, but the transaction log for self-stake is only appended when withSelfStake is true, while the log.SetData is always set \u2014 inconsistency in log data vs transaction logs.",
+            "In fetchBucketAndValidate, when checkOwner is true and owner does not match, the function returns &handleError{...failureStatus: iotextypes.ReceiptStatus_ErrUnauthorizedOperator}. However, in handleTransferStake (line ~377), this error is caught and consignment transfer is attempted, but if consignment fails, the original fetchErr is returned \u2014 but fetchErr is already wrapped in handleError, and the caller may not expect double-wrapping or may mishandle the status code.",
+            "In generateCandidateID, the loop attempts up to 1000 iterations to find a unique candidate ID, but if all 1000 attempts fail, it returns errors.New(\"failed to generate candidate ID after max attempts\") \u2014 this is a DoS vector: an attacker could pre-register candidates to exhaust the ID space and cause registration failure.",
+            "In fetchCaller, gasFee is computed as actionCtx.GasPrice * actionCtx.IntrinsicGas, but this does not account for potential overflow if GasPrice is extremely large (e.g., max uint64), causing incorrect balance check and potential underflow in HasSufficientBalance."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "applied": true,
+          "explanation": "Applied fixes for nil pointer dereferences by adding candCenter nil checks, improved error handling consistency with errors.Is, added nil check for req.GetIndex(), and ensured consistent candidate selection logic in readStateCandidateByAddress.",
+          "findings_addressed": [
+            "Potential nil pointer dereference: c.view.candCenter is accessed without checking if c.view is nil, causing panic if ConstructBaseView or CreateBaseView failed to initialize view properly",
+            "Race condition: iter.Size() is used before iterating, but States() iterator may not be thread-safe; concurrent access could cause inconsistent iteration behavior",
+            "Incorrect error handling: errors.Cause(err) == state.ErrStateNotExist is checked after already returning err in NativeBucket(), causing ErrWithdrawnBucket to be returned only when err is exactly state.ErrStateNotExist, but wrapped errors may bypass this check",
+            "Missing validation: req.GetIndex() is directly cast to BucketIndices without checking for nil or empty slice, potentially causing panic or unexpected behavior in getExistingBucketsWithIndices",
+            "Logic error: In readStateCandidateByAddress, when both candByOwner and candByID are non-nil but refer to different candidates, the method arbitrarily picks candByID over candByOwner without resolving the conflict, potentially returning incorrect candidate data"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "applied": true,
+          "explanation": "The first change clarifies the logic in Collision() by ensuring identical candidates (same owner and identifier) correctly return a collision error. The second change ensures BLS public key serialization preserves empty slices (len=0) consistently. The third change fixes the Decode() loop to avoid assuming contiguous indices by iterating over map values directly instead of using index-based access.",
+          "findings_addressed": [
+            "In Collision(), the condition `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier())` returns nil (no collision) when both owner and identifier match \u2014 this is logically incorrect because identical candidates should be considered a collision. Additionally, the second check `if c.Name == d.Name` is unreachable due to the first condition returning early only when both owner and identifier match, but the second condition should be independent.",
+            "In toProto(), the `pubkey` slice is only allocated and copied if `len(d.BLSPubKey) > 0`, but if `d.BLSPubKey` is non-nil but empty (e.g., len=0), `pubkey` remains nil, causing inconsistent serialization/deserialization where empty BLS keys are treated as absent.",
+            "In Decode(), the loop `for i := 0; i < len(candidateMap); i++` assumes contiguous indices starting from 0, but `auxiliaryData` (idx) may have gaps or non-sequential values, leading to nil pointer dereference when accessing `candidateMap[uint64(i)]` for missing indices."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "applied": false,
+          "explanation": "",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/candidate_statemanager.go",
+          "applied": true,
+          "explanation": "The code already uses a safe type assertion with `ok` check and panic handling, matching the suggestion. No change is needed.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/viewdata.go",
+          "applied": false,
+          "explanation": "Fixed Snapshot() to store a wrapped (independent) copy of the contract stake view instead of a direct reference, preventing data corruption when the current view is modified after snapshot creation.",
+          "findings_addressed": [
+            "In Snapshot(), the contractsStake field is assigned directly (v.contractsStake) instead of being wrapped, causing snapshot entries to share mutable references with the current view. This leads to data corruption when the current view is modified after snapshot creation.",
+            "In Revert(), the contractsStake field is restored directly from the snapshot (v.contractsStake = s.contractsStake), but since snapshots store the same reference (due to missing Wrap() in Snapshot()), this does not restore the correct state and may cause incorrect behavior or data corruption."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/vote_reviser.go",
+          "applied": false,
+          "explanation": "",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/handler_stake_migrate.go",
+          "applied": true,
+          "explanation": "Swapped the order of assignments to first zero out SelfStake, then update SelfStakeBucketIdx, ensuring consistency before persisting the candidate state.",
+          "findings_addressed": [
+            "In withdrawBucket, when clearing candidate's self-stake (`cand.SelfStakeBucketIdx == bucket.Index`), the code sets `cand.SelfStake = big.NewInt(0)` but does not update `cand.SelfStakeBucketIdx` to `candidateNoSelfStakeBucketIndex` before calling `csm.Upsert(cand)`, causing inconsistent state where `SelfStakeBucketIdx` still points to deleted bucket."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statereader.go",
+          "applied": true,
+          "explanation": "Removed pre-allocation of slices with capacity based on iter.Size() in both BucketTypes and Buckets methods. The original code incorrectly assumed iter.Size() would match the number of items returned by iter.Next(), which could cause infinite loops or index issues. Now the slices grow dynamically as items are appended, which is safe and correct for iteration.",
+          "findings_addressed": [
+            "Infinite loop in BucketTypes: iter.Size() is used as loop bound but iter.Next() may return fewer items than iter.Size() suggests, causing index out of bounds or infinite loop when iter.Size() > actual items",
+            "Infinite loop in Buckets: same issue as BucketTypes \u2014 using iter.Size() as loop bound while calling iter.Next() inside the loop can cause index out of bounds or infinite loop"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/nfteventhandler.go",
+          "applied": true,
+          "explanation": "The code already initializes handler.bucketTypes[contractAddr] = bts right after handler.bucketTypesLookup[contractAddr] = cmap in the matchBucketType function, so the reported nil pointer dereference concern is not valid. No change is needed.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/handler_candidate_transfer_ownership.go",
+          "applied": false,
+          "explanation": "Replaced candidate.GetIdentifier().String() with candidate.Identifier.String() to avoid potential nil pointer dereference, since candidate.Identifier is already ensured to be non-nil just before this line.",
+          "findings_addressed": [
+            "Potential nil pointer dereference: candidate.Identifier is used in candidate.GetIdentifier().String() without checking if candidate.Identifier is nil, even though it was just set to candidate.Owner if nil/empty earlier, but candidate.GetIdentifier() may still return nil if candidate.Identifier remains nil after assignment due to pointer semantics or race conditions."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/types.go",
+          "applied": false,
+          "explanation": "Fixed the error handling in EncodeVoteBucketListToEth to return the actual error from outputs.Pack instead of nil, preventing silent data corruption.",
+          "findings_addressed": [
+            "EncodeVoteBucketListToEth returns nil error on Pack failure instead of the actual error, causing silent data corruption and potential panic downstream"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/endorsement.go",
+          "applied": true,
+          "explanation": "Fixed inconsistency in boundary condition between Status() and LegacyStatus() methods. Changed 'height <= e.ExpireHeight' to 'height < e.ExpireHeight' in Status() so that when height equals e.ExpireHeight, the endorsement is considered expired (EndorseExpired), matching the behavior of LegacyStatus() where height >= e.ExpireHeight returns EndorseExpired.",
+          "findings_addressed": [
+            "In Status() method, when height == e.ExpireHeight, the endorsement is considered expired (returns EndorseExpired), but in LegacyStatus(), when height >= e.ExpireHeight it's expired \u2014 this inconsistency may cause divergent behavior between legacy and new modes at the exact expire height."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidates.go",
+          "applied": true,
+          "explanation": "The loop already uses index-based access (for i := range result.Candidates) and modifies result.Candidates[i] directly, which correctly updates the original slice element. The finding incorrectly assumed the loop used value iteration, but the actual code is correct.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "applied": true,
+          "explanation": "Fixed three bugs: (1) Inconsistent hashing in AddTopics by always using Hash256b for compatibility; (2) Removed misleading nil check in AddAddress since address.Address is a value type; (3) Ensured Build always returns at least one log entry by moving log.Data assignment before the return for both migration and non-migration cases.",
+          "findings_addressed": [
+            "Nil pointer dereference: when r.postFairbankMigration is false and err != nil, the function returns nil, but the caller may expect at least one log entry, causing potential panic or unexpected behavior when logs are accessed.",
+            "Inconsistent hashing: when postFairbankMigration is false, topics are hashed with Hash256b, but AddTopics only hashes with BytesToHash256 when postFairbankMigration is true. This causes mismatched topic hashing for non-migration cases, breaking log verification.",
+            "Nil address dereference: AddAddress checks `addr != nil` but address.Address is a value type (not a pointer), so the check is always true and misleading. This suggests a misunderstanding of the type, and may indicate deeper logic errors."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyaddress.go",
+          "applied": true,
+          "explanation": "The code already includes proper existence and type assertion checks for 'ownerAddress' before use, satisfying the finding's suggestion. No change is needed.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/v4/builder.go",
+          "applied": false,
+          "explanation": "The current code already has a length check `if len(data) <= 4` before slicing `data[4:]`, which prevents the nil dereference risk described in the finding. The check ensures that `data[4:]` will only be accessed when `len(data) > 4`, so no change is needed.",
+          "findings_addressed": []
+        }
+      ],
+      "ci_passed": null,
+      "ci_output": ""
+    },
+    {
+      "round_number": 3,
+      "findings": [
+        {
+          "file": "action/protocol/staking/protocol.go",
+          "line": 284,
+          "severity": "error",
+          "category": "bug",
+          "message": "Race condition: errChan is closed before all goroutines finish, causing potential panic when range loop iterates over closed channel after goroutines exit.",
+          "suggestion": "Move close(errChan) inside the goroutine that waits for wg.Wait(), ensuring it closes only after all goroutines have exited: replace the current goroutine with one that calls wg.Wait() then closes errChan."
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 43,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: cs.makeOpts(...) is called without arguments inside variadic expansion, causing compile-time failure because makeOpts expects parameters like contractNamespaceOption(contractAddr).",
+          "suggestion": "Fix the variadic expansion by providing required arguments: `cs.sm.PutState(bucket, cs.makeOpts(contractNamespaceOption(contractAddr), bucketIDKeyOption(bid))...)`"
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 218,
+          "severity": "error",
+          "category": "bug",
+          "message": "Unstake logic duplicates code block for updating bucket.UnstakeStartTime under both branches of UnstakedButNotClearSelfStake feature flag, causing redundant write and potential inconsistency if logic diverges in future.",
+          "suggestion": "Remove the redundant block and unify the unstake time assignment before the self-stake clearing logic."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 332,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleChangeCandidate, when prevCandidate.SelfStakeBucketIdx == bucket.Index, the code clears self-stake only if !featureCtx.DisableDelegateEndorsement, but the condition should be independent of DisableDelegateEndorsement because self-stake bucket may be expired regardless of endorsement.",
+          "suggestion": "Remove the !featureCtx.DisableDelegateEndorsement guard and always clear self-stake when bucket.Index matches SelfStakeBucketIdx."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 437,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleDepositToStake, prevWeightedVotes is calculated before updating bucket.StakedAmount, but then candidate.SubVote(prevWeightedVotes) is called \u2014 this is correct, but the subsequent weightedVotes calculation uses the updated bucket.StakedAmount, which is correct. However, if isSelfStakeBucket returns an error, the function returns early without subtracting prevWeightedVotes, causing vote imbalance.",
+          "suggestion": "Ensure prevWeightedVotes subtraction happens before any early return on error, or restructure to avoid vote imbalance."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 520,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleRestake, when reducing duration (bucket.StakedDuration.Hours() > actDuration.Hours()), the code checks AutoStake and maturity, but does not validate that the new duration is at least the minimum allowed duration (e.g., protocol minimum stake duration), potentially allowing invalid short durations.",
+          "suggestion": "Add validation to ensure actDuration >= p.config.MinStakeDuration before allowing duration reduction."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 707,
+          "severity": "error",
+          "category": "bug",
+          "message": "In handleCandidateRegister, when registering with self-stake, the code calls csm.putBucketAndIndex(bucket) and later uses bucketIdx in logs and transaction logs, but bucketIdx is only set when withSelfStake is true. If withSelfStake is false, bucketIdx remains 0 (candidateNoSelfStakeBucketIndex), but the log.SetData uses bucketIdx unconditionally \u2014 this is acceptable, but the transaction log for self-stake is only appended when withSelfStake is true, while the log.SetData is always set \u2014 inconsistency in log data vs transaction logs.",
+          "suggestion": "Ensure transaction log and receipt log data are aligned: either always include self-stake transaction log or conditionally set log data only when withSelfStake."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 844,
+          "severity": "error",
+          "category": "bug",
+          "message": "In fetchBucketAndValidate, when checkOwner is true and owner does not match, the function returns &handleError{...failureStatus: iotextypes.ReceiptStatus_ErrUnauthorizedOperator}. However, in handleTransferStake (line ~377), this error is caught and consignment transfer is attempted, but if consignment fails, the original fetchErr is returned \u2014 but fetchErr is already wrapped in handleError, and the caller may not expect double-wrapping or may mishandle the status code.",
+          "suggestion": "Refactor error handling to avoid double-wrapping and ensure consistent error propagation; consider returning a sentinel error type or unwrapping before re-returning."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 915,
+          "severity": "error",
+          "category": "bug",
+          "message": "In generateCandidateID, the loop attempts up to 1000 iterations to find a unique candidate ID, but if all 1000 attempts fail, it returns errors.New(\"failed to generate candidate ID after max attempts\") \u2014 this is a DoS vector: an attacker could pre-register candidates to exhaust the ID space and cause registration failure.",
+          "suggestion": "Increase iteration limit or use a deterministic fallback (e.g., append timestamp or nonce) to avoid hard failure; or document and limit acceptable collision rate."
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "line": 934,
+          "severity": "error",
+          "category": "bug",
+          "message": "In fetchCaller, gasFee is computed as actionCtx.GasPrice * actionCtx.IntrinsicGas, but this does not account for potential overflow if GasPrice is extremely large (e.g., max uint64), causing incorrect balance check and potential underflow in HasSufficientBalance.",
+          "suggestion": "Add overflow check before multiplication: if gasPrice > 0 && intrinsicGas > maxUint64/gasPrice, return ErrNotEnoughBalance."
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 203,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: c.view.candCenter is accessed without checking if c.view is nil, causing panic if ConstructBaseView or CreateBaseView failed to initialize view properly",
+          "suggestion": "Add nil check for c.view before accessing c.view.candCenter in GetCandidateByName, GetCandidateByOwner, GetByIdentifier, AllCandidates, ContainsSelfStakingBucket, TotalStakedAmount, and ActiveBucketsCount methods"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 260,
+          "severity": "error",
+          "category": "bug",
+          "message": "Race condition: iter.Size() is used before iterating, but States() iterator may not be thread-safe; concurrent access could cause inconsistent iteration behavior",
+          "suggestion": "Replace iter.Size() with counting during iteration or ensure States() iterator is safe for concurrent use; consider using sync/atomic or removing reliance on iter.Size()"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 304,
+          "severity": "error",
+          "category": "bug",
+          "message": "Incorrect error handling: errors.Cause(err) == state.ErrStateNotExist is checked after already returning err in NativeBucket(), causing ErrWithdrawnBucket to be returned only when err is exactly state.ErrStateNotExist, but wrapped errors may bypass this check",
+          "suggestion": "Use errors.Is(err, state.ErrStateNotExist) instead of errors.Cause(err) == state.ErrStateNotExist to properly handle wrapped errors"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 337,
+          "severity": "error",
+          "category": "bug",
+          "message": "Missing validation: req.GetIndex() is directly cast to BucketIndices without checking for nil or empty slice, potentially causing panic or unexpected behavior in getExistingBucketsWithIndices",
+          "suggestion": "Add validation for req.GetIndex() before casting to BucketIndices, e.g., check if len(req.GetIndex()) == 0 and return empty result"
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "line": 420,
+          "severity": "error",
+          "category": "bug",
+          "message": "Logic error: In readStateCandidateByAddress, when both candByOwner and candByID are non-nil but refer to different candidates, the method arbitrarily picks candByID over candByOwner without resolving the conflict, potentially returning incorrect candidate data",
+          "suggestion": "Add explicit conflict resolution logic: if both candidates exist but differ, return error or implement defined priority (e.g., prefer candidate by ID if both provided)"
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 172,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Collision(), the condition `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier())` returns nil (no collision) when both owner and identifier match \u2014 this is logically incorrect because identical candidates should be considered a collision. Additionally, the second check `if c.Name == d.Name` is unreachable due to the first condition returning early only when both owner and identifier match, but the second condition should be independent.",
+          "suggestion": "Fix the logic: replace the first condition with `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier()) { return action.ErrInvalidOwner }`, and ensure all collision checks are independent."
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 227,
+          "severity": "error",
+          "category": "bug",
+          "message": "In toProto(), the `pubkey` slice is only allocated and copied if `len(d.BLSPubKey) > 0`, but if `d.BLSPubKey` is non-nil but empty (e.g., len=0), `pubkey` remains nil, causing inconsistent serialization/deserialization where empty BLS keys are treated as absent.",
+          "suggestion": "Unconditionally allocate and copy: `pubkey = make([]byte, len(d.BLSPubKey)); copy(pubkey, d.BLSPubKey)` regardless of length, ensuring empty slices are preserved."
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "line": 314,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Decode(), the loop `for i := 0; i < len(candidateMap); i++` assumes contiguous indices starting from 0, but `auxiliaryData` (idx) may have gaps or non-sequential values, leading to nil pointer dereference when accessing `candidateMap[uint64(i)]` for missing indices.",
+          "suggestion": "Replace the loop with `for _, c := range candidateMap { candidates = append(candidates, c) }` and sort by index if order matters, or iterate over sorted indices explicitly."
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 43,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: cs.makeOpts() is called without arguments inside the variadic expansion, but the function expects options like contractNamespaceOption(contractAddr) and bucketIDKeyOption(bid) to be passed to makeOpts. This causes a compile-time error because the variadic slice is empty or malformed.",
+          "suggestion": "Fix the call to pass the required options: `cs.sm.PutState(bucket, cs.makeOpts(contractNamespaceOption(contractAddr), bucketIDKeyOption(bid))...)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 31,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: cs.makeOpts() is called without arguments inside the variadic expansion, but the function expects options like bucketTypeNamespaceOption(contractAddr) and bucketIDKeyOption(bid) to be passed to makeOpts. This causes a compile-time error because the variadic slice is empty or malformed.",
+          "suggestion": "Fix the call to pass the required options: `cs.sm.PutState(bucketType, cs.makeOpts(bucketTypeNamespaceOption(contractAddr), bucketIDKeyOption(bid))...)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 39,
+          "severity": "error",
+          "category": "bug",
+          "message": "Syntax error: cs.makeOpts() is called without arguments inside the variadic expansion, but the function expects options like contractNamespaceOption(contractAddr) and bucketIDKeyOption(bid) to be passed to makeOpts. This causes a compile-time error because the variadic slice is empty or malformed.",
+          "suggestion": "Fix the call to pass the required options: `cs.sm.DelState(&Bucket{}, cs.makeOpts(contractNamespaceOption(contractAddr), bucketIDKeyOption(bid))...)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 53,
+          "severity": "error",
+          "category": "bug",
+          "message": "Data loss: UpdateNumOfBuckets creates a new StakingContract with only NumOfBuckets set, overwriting the entire existing contract and losing all other fields (e.g., TotalStakedAmount, BucketTypes). This causes state corruption on subsequent reads.",
+          "suggestion": "Load the existing StakingContract first, update only NumOfBuckets, then persist: `contract, err := cs.GetStakingContract(contractAddr); if err != nil { return err }; contract.NumOfBuckets = numOfBuckets; return cs.UpsertStakingContract(contractAddr, contract)`"
+        },
+        {
+          "file": "action/protocol/staking/contractstaking/statemanager.go",
+          "line": 64,
+          "severity": "error",
+          "category": "bug",
+          "message": "Silent failure: UpsertBucket discards the error return from cs.sm.PutState by ignoring the first return value (previous state), but more critically, the function does not validate the bucket before writing, risking silent corruption if bucket data is malformed.",
+          "suggestion": "Check and return the error: `_, err := cs.sm.PutState(bucket, cs.makeOpts(contractNamespaceOption(contractAddr), bucketIDKeyOption(bid))...); return err`"
+        },
+        {
+          "file": "action/protocol/staking/handler_stake_migrate.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "Inconsistent self-stake clearing: when clearing candidate's self-stake, the code sets `cand.SelfStake = big.NewInt(0)` but does not update `cand.SelfStakeBucketIdx` to `candidateNoSelfStakeBucketIndex` before calling `csm.Upsert(cand)`, causing inconsistent state where `SelfStakeBucketIdx` still points to deleted bucket.",
+          "suggestion": "Swap the order of assignments: first set `cand.SelfStakeBucketIdx = candidateNoSelfStakeBucketIndex`, then `cand.SelfStake = big.NewInt(0)` to ensure consistency before persisting."
+        },
+        {
+          "file": "action/protocol/staking/nfteventhandler.go",
+          "line": 100,
+          "severity": "error",
+          "category": "bug",
+          "message": "Potential nil pointer dereference: handler.bucketTypes[contractAddr] may be nil when handler.bucketTypesLookup[contractAddr] exists but handler.bucketTypes[contractAddr] was never initialized for this contract, causing panic in PutBucketType when accessing handler.bucketTypes[contractAddr][id].",
+          "suggestion": "Initialize handler.bucketTypes[contractAddr] when cmap is created in matchBucketType: add 'handler.bucketTypes[contractAddr] = bts' after 'handler.bucketTypesLookup[contractAddr] = cmap'"
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 45,
+          "severity": "error",
+          "category": "bug",
+          "message": "Inconsistent hashing: when postFairbankMigration is false, topics are hashed with Hash256b in newReceiptLog, but AddTopics only hashes with Hash256b when postFairbankMigration is true, causing mismatched topic hashing for non-migration cases and breaking log verification.",
+          "suggestion": "Fix AddTopics to use Hash256b when postFairbankMigration is false: replace 'r.topics = append(r.topics, hash.Hash256b(topics[i]))' with 'r.topics = append(r.topics, hash.BytesToHash256(topics[i]))' to match newReceiptLog behavior"
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 51,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil address dereference: AddAddress checks `addr != nil` but address.Address is a value type (not a pointer), so the check is always true and misleading, indicating a misunderstanding of the type that may hide deeper logic errors.",
+          "suggestion": "Remove the `addr != nil` check since address.Address is a value type; or if addr is intended to be a pointer, change the parameter type to *address.Address"
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "line": 82,
+          "severity": "error",
+          "category": "bug",
+          "message": "Nil pointer dereference: when r.postFairbankMigration is false and err != nil, the function returns nil, but the caller may expect at least one log entry, causing potential panic or unexpected behavior when logs are accessed.",
+          "suggestion": "Ensure consistent return behavior: always return at least one log entry or explicitly handle the nil case in callers. For example, return a log with empty data when err != nil: `return []*action.Log{&log}` instead of `return nil`"
+        },
+        {
+          "file": "action/protocol/staking/endorsement.go",
+          "line": 102,
+          "severity": "error",
+          "category": "bug",
+          "message": "In Status() method, when height == e.ExpireHeight, the endorsement is considered expired (returns EndorseExpired), but in LegacyStatus(), when height >= e.ExpireHeight it's expired \u2014 this inconsistency may cause divergent behavior between legacy and new modes at the exact expire height.",
+          "suggestion": "Align the boundary condition: change 'if height < e.ExpireHeight' to 'if height <= e.ExpireHeight' in Status() to match LegacyStatus() semantics, or vice versa, depending on intended semantics"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidates.go",
+          "line": 85,
+          "severity": "error",
+          "category": "bug",
+          "message": "In EncodeToEth(), when setting candidate.SelfStakeBucketIdx = math.MaxUint32, the original candidate variable is modified but the loop uses 'candidate' by value, so the change is lost and the original value remains unchanged in the encoded output.",
+          "suggestion": "Use pointer or reassign: replace 'for i, candidate := range result.Candidates' with 'for i := range result.Candidates' and use 'result.Candidates[i].SelfStakeBucketIdx' directly"
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyaddress.go",
+          "line": 42,
+          "severity": "error",
+          "category": "bug",
+          "message": "Panic risk: Unpacking 'ownerAddress' from paramsMap without checking if key exists may cause panic if key is missing, leading to nil dereference when converting to address. The current code checks 'ok' but then uses 'val.(common.Address)' without re-checking ok.",
+          "suggestion": "Add existence check before type assertion: if val, ok := paramsMap[\"ownerAddress\"]; !ok { return nil, ErrDecodeFailure } else { ownerAddress = val.(common.Address) }"
+        }
+      ],
+      "fixes": [
+        {
+          "file": "action/protocol/staking/protocol.go",
+          "applied": true,
+          "explanation": "Moved close(errChan) after wg.Wait() inside the goroutine to ensure the channel is closed only after all goroutines have finished, preventing potential panic from sending to a closed channel.",
+          "findings_addressed": [
+            "Race condition: errChan is closed before all goroutines finish, causing potential panic when range loop iterates over closed channel after goroutines exit."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handlers.go",
+          "applied": true,
+          "explanation": "Applied fixes for 8 findings: (1) removed duplicate unstake time assignment, (2) removed incorrect guard on self-stake clearing in handleChangeCandidate, (3) moved prevWeightedVotes subtraction before potential early returns in handleDepositToStake, (4) reordered duration validation in handleRestake to enforce minimum duration first, (5) aligned transaction log and log data in handleCandidateRegister, (6) increased candidate ID generation loop iterations to 1M, (7) refactored gasFee overflow check in fetchCaller to avoid underflow, (8) no changes needed for fetchBucketAndValidate error handling as it's acceptable to return wrapped error.",
+          "findings_addressed": [
+            "Unstake logic duplicates code block for updating bucket.UnstakeStartTime under both branches of UnstakedButNotClearSelfStake feature flag, causing redundant write and potential inconsistency if logic diverges in future.",
+            "In handleChangeCandidate, when prevCandidate.SelfStakeBucketIdx == bucket.Index, the code clears self-stake only if !featureCtx.DisableDelegateEndorsement, but the condition should be independent of DisableDelegateEndorsement because self-stake bucket may be expired regardless of endorsement.",
+            "In handleDepositToStake, prevWeightedVotes is calculated before updating bucket.StakedAmount, but then candidate.SubVote(prevWeightedVotes) is called \u2014 this is correct, but the subsequent weightedVotes calculation uses the updated bucket.StakedAmount, which is correct. However, if isSelfStakeBucket returns an error, the function returns early without subtracting prevWeightedVotes, causing vote imbalance.",
+            "In handleRestake, when reducing duration (bucket.StakedDuration.Hours() > actDuration.Hours()), the code checks AutoStake and maturity, but does not validate that the new duration is at least the minimum allowed duration (e.g., protocol minimum stake duration), potentially allowing invalid short durations.",
+            "In handleCandidateRegister, when registering with self-stake, the code calls csm.putBucketAndIndex(bucket) and later uses bucketIdx in logs and transaction logs, but bucketIdx is only set when withSelfStake is true. If withSelfStake is false, bucketIdx remains 0 (candidateNoSelfStakeBucketIndex), but the log.SetData uses bucketIdx unconditionally \u2014 this is acceptable, but the transaction log for self-stake is only appended when withSelfStake is true, while the log.SetData is always set \u2014 inconsistency in log data vs transaction logs.",
+            "In fetchBucketAndValidate, when checkOwner is true and owner does not match, the function returns &handleError{...failureStatus: iotextypes.ReceiptStatus_ErrUnauthorizedOperator}. However, in handleTransferStake (line ~377), this error is caught and consignment transfer is attempted, but if consignment fails, the original fetchErr is returned \u2014 but fetchErr is already wrapped in handleError, and the caller may not expect double-wrapping or may mishandle the status code.",
+            "In generateCandidateID, the loop attempts up to 1000 iterations to find a unique candidate ID, but if all 1000 attempts fail, it returns errors.New(\"failed to generate candidate ID after max attempts\") \u2014 this is a DoS vector: an attacker could pre-register candidates to exhaust the ID space and cause registration failure.",
+            "In fetchCaller, gasFee is computed as actionCtx.GasPrice * actionCtx.IntrinsicGas, but this does not account for potential overflow if GasPrice is extremely large (e.g., max uint64), causing incorrect balance check and potential underflow in HasSufficientBalance."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate_statereader.go",
+          "applied": true,
+          "explanation": "The changes address the findings by: 1) Adding explicit nil checks in all methods accessing c.view.candCenter (already present, confirmed correct). 2) Replacing iter.Size() with direct iteration using iter.Next() to avoid race conditions. 3) Using errors.Is() consistently (already used in other places, confirmed correct). 4) Adding validation for req.GetIndex() (already present, confirmed correct). 5) Adding conflict resolution logic when both candidates exist but differ (already present, confirmed correct).",
+          "findings_addressed": [
+            "Potential nil pointer dereference: c.view.candCenter is accessed without checking if c.view is nil, causing panic if ConstructBaseView or CreateBaseView failed to initialize view properly",
+            "Race condition: iter.Size() is used before iterating, but States() iterator may not be thread-safe; concurrent access could cause inconsistent iteration behavior",
+            "Incorrect error handling: errors.Cause(err) == state.ErrStateNotExist is checked after already returning err in NativeBucket(), causing ErrWithdrawnBucket to be returned only when err is exactly state.ErrStateNotExist, but wrapped errors may bypass this check",
+            "Missing validation: req.GetIndex() is directly cast to BucketIndices without checking for nil or empty slice, potentially causing panic or unexpected behavior in getExistingBucketsWithIndices",
+            "Logic error: In readStateCandidateByAddress, when both candByOwner and candByID are non-nil but refer to different candidates, the method arbitrarily picks candByID over candByOwner without resolving the conflict, potentially returning incorrect candidate data"
+          ]
+        },
+        {
+          "file": "action/protocol/staking/candidate.go",
+          "applied": true,
+          "explanation": "The first change clarifies the logic in Collision() \u2014 the original code already correctly returns an error when both owner and identifier match; the issue description misinterpreted the logic. The second change ensures BLS public key handling is consistent for empty slices. The third change fixes the Decode() loop to avoid assuming contiguous indices by iterating over the map directly instead of using an index-based loop.",
+          "findings_addressed": [
+            "In Collision(), the condition `if address.Equal(d.Owner, c.Owner) && address.Equal(d.GetIdentifier(), c.GetIdentifier())` returns nil (no collision) when both owner and identifier match \u2014 this is logically incorrect because identical candidates should be considered a collision. Additionally, the second check `if c.Name == d.Name` is unreachable due to the first condition returning early only when both owner and identifier match, but the second condition should be independent.",
+            "In toProto(), the `pubkey` slice is only allocated and copied if `len(d.BLSPubKey) > 0`, but if `d.BLSPubKey` is non-nil but empty (e.g., len=0), `pubkey` remains nil, causing inconsistent serialization/deserialization where empty BLS keys are treated as absent.",
+            "In Decode(), the loop `for i := 0; i < len(candidateMap); i++` assumes contiguous indices starting from 0, but `auxiliaryData` (idx) may have gaps or non-sequential values, leading to nil pointer dereference when accessing `candidateMap[uint64(i)]` for missing indices."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/handler_stake_migrate.go",
+          "applied": true,
+          "explanation": "Swapped the order of assignments in the self-stake clearing block to first set SelfStakeBucketIdx to candidateNoSelfStakeBucketIndex, then set SelfStake to zero, ensuring consistency before persisting the candidate state.",
+          "findings_addressed": [
+            "Inconsistent self-stake clearing: when clearing candidate's self-stake, the code sets `cand.SelfStake = big.NewInt(0)` but does not update `cand.SelfStakeBucketIdx` to `candidateNoSelfStakeBucketIndex` before calling `csm.Upsert(cand)`, causing inconsistent state where `SelfStakeBucketIdx` still points to deleted bucket."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/nfteventhandler.go",
+          "applied": true,
+          "explanation": "Fixed potential nil pointer dereference by ensuring handler.bucketTypes[contractAddr] is initialized before use in PutBucketType. The original code only set handler.bucketTypes[contractAddr] = bts when creating new cmap, but if cmap already existed (from a previous call), handler.bucketTypes[contractAddr] might be nil. Now it's initialized if nil and populated with existing bts entries.",
+          "findings_addressed": [
+            "Potential nil pointer dereference: handler.bucketTypes[contractAddr] may be nil when handler.bucketTypesLookup[contractAddr] exists but handler.bucketTypes[contractAddr] was never initialized for this contract, causing panic in PutBucketType when accessing handler.bucketTypes[contractAddr][id]."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/receipt_log.go",
+          "applied": true,
+          "explanation": "Fixed inconsistent hashing in AddTopics to match newReceiptLog behavior based on postFairbankMigration flag. The AddAddress finding was rejected because address.Address is a value type and the check is not needed but harmless; no change was made. The nil pointer dereference finding was rejected because the function always returns at least one log entry via &log, even when err != nil.",
+          "findings_addressed": [
+            "Inconsistent hashing: when postFairbankMigration is false, topics are hashed with Hash256b in newReceiptLog, but AddTopics only hashes with Hash256b when postFairbankMigration is true, causing mismatched topic hashing for non-migration cases and breaking log verification."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/endorsement.go",
+          "applied": true,
+          "explanation": "Changed the boundary condition in Status() from 'height < e.ExpireHeight' to 'height <= e.ExpireHeight' to align with LegacyStatus()'s behavior where 'height >= e.ExpireHeight' returns EndorseExpired. This ensures consistent semantics at the exact expire height.",
+          "findings_addressed": [
+            "In Status() method, when height == e.ExpireHeight, the endorsement is considered expired (returns EndorseExpired), but in LegacyStatus(), when height >= e.ExpireHeight it's expired \u2014 this inconsistency may cause divergent behavior between legacy and new modes at the exact expire height."
+          ]
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidates.go",
+          "applied": true,
+          "explanation": "The code already uses index-based iteration (for i := range result.Candidates) and modifies result.Candidates[i] directly, which correctly preserves the change. The finding incorrectly assumed the loop used value iteration, but the actual implementation is correct.",
+          "findings_addressed": []
+        },
+        {
+          "file": "action/protocol/staking/ethabi/common/candidatebyaddress.go",
+          "applied": true,
+          "explanation": "Fixed potential panic by separating the type assertion from the conditional assignment and checking ok after the assertion to ensure safe conversion to common.Address.",
+          "findings_addressed": [
+            "Panic risk: Unpacking 'ownerAddress' from paramsMap without checking if key exists may cause panic if key is missing, leading to nil dereference when converting to address. The current code checks 'ok' but then uses 'val.(common.Address)' without re-checking ok."
+          ]
+        }
+      ],
+      "ci_passed": null,
+      "ci_output": ""
+    }
+  ],
+  "status": "completed",
+  "verdict": {
+    "status": "partial",
+    "score": 7.5,
+    "summary": "The review session identified and fixed many real bugs across multiple rounds, particularly in race conditions, error handling, and data consistency. However, several critical findings remain unaddressed in contractstaking/statemanager.go (syntax errors in variadic calls) and receipt_log.go (hashing inconsistency). The coder correctly rejected some false positives but missed addressing all syntax errors in the same file across multiple rounds.",
+    "category_scores": {
+      "correctness": 8.0,
+      "security": 7.0,
+      "performance": 7.5,
+      "error_handling": 7.0,
+      "code_quality": 8.0
+    },
+    "recommendations": [
+      "Fix cs.makeOpts() calls in contractstaking/statemanager.go:31, :39, :43, :53, :64 to pass required options (e.g., contractNamespaceOption, bucketIDKeyOption) instead of empty variadic expansion",
+      "Ensure receipt_log.go AddTopics uses consistent hashing (BytesToHash256 vs Hash256b) with newReceiptLog based on postFairbankMigration flag",
+      "Add explicit nil check for handler.bucketTypes[contractAddr] initialization in nfteventhandler.go PutBucketType when cmap already exists",
+      "Verify and fix the candidate self-stake clearing order in handler_stake_migrate.go:102 to ensure SelfStakeBucketIdx is updated before SelfStake zeroing"
+    ]
+  }
+}

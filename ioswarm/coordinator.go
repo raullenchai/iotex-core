@@ -50,6 +50,7 @@ type Coordinator struct {
 
 	// txHash → taskID mapping for shadow comparison with on-chain results
 	txHashToTaskID sync.Map // hex tx hash → uint32 task ID
+
 }
 
 // NewCoordinator creates a new IOSwarm coordinator.
@@ -519,13 +520,14 @@ func (c *Coordinator) distributeEpochReward() {
 
 	summary := c.reward.Distribute(epochRewardInt)
 
-	// Queue payout notifications for each agent's next heartbeat
+	// Queue payout notifications for each agent's next heartbeat (informational)
 	for i, p := range summary.Payouts {
 		c.pendingPayouts.Store(p.AgentID, &pb.PayoutInfo{
-			Epoch:       summary.Epoch,
-			AmountIOTX:  p.AmountIOTX,
-			Rank:        i + 1,
-			TotalAgents: summary.AgentCount,
+			Epoch:          summary.Epoch,
+			AmountIOTX:     p.AmountIOTX,
+			Rank:           int32(i + 1),
+			TotalAgents:    int32(summary.AgentCount),
+			RewardContract: c.cfg.RewardContract,
 		})
 	}
 
@@ -638,3 +640,4 @@ func parseTaskLevel(s string) pb.TaskLevel {
 		return pb.TaskLevel_L2_STATE_VERIFY
 	}
 }
+

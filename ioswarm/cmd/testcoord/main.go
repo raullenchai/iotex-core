@@ -185,7 +185,7 @@ func main() {
 	actPool.height.Store(1000)
 	stateDB := newMockState()
 
-	coord := ioswarm.NewCoordinator(cfg, actPool, stateDB, ioswarm.WithLogger(logger))
+	coord := ioswarm.NewCoordinator(cfg, actPool, stateDB, nil, ioswarm.WithLogger(logger))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -1,0 +1,94 @@
+{
+  "session_id": "0acb3465fec4",
+  "target": "/Users/raullenstudio/work/iotex-core/ioctl/cmd/contract",
+  "started_at": "2026-03-06T09:06:09.183179",
+  "config_snapshot": {
+    "roles": {
+      "reviewer": {
+        "description": "Senior code reviewer \u2014 finds bugs, security, correctness issues",
+        "prompt_file": "prompts/reviewer.txt"
+      },
+      "coder": {
+        "description": "Expert developer \u2014 applies fixes or rejects with reasoning",
+        "prompt_file": "prompts/coder.txt"
+      },
+      "judge": {
+        "description": "Final arbiter \u2014 evaluates all rounds, scores, verdict",
+        "prompt_file": "prompts/judge.txt"
+      }
+    },
+    "models": {
+      "claude-opus": {
+        "provider": "claude-cli",
+        "model": "opus"
+      },
+      "claude-sonnet": {
+        "provider": "claude-cli",
+        "model": "sonnet"
+      },
+      "codex": {
+        "provider": "codex-cli"
+      },
+      "qwen-local": {
+        "provider": "openai-compat",
+        "base_url": "http://localhost:8000",
+        "model": "/Users/raullenstudio/.lmstudio/models/lmstudio-community/Qwen3-Coder-Next-MLX-6bit",
+        "max_tokens": 32768,
+        "temperature": 0.1,
+        "no_think": false
+      },
+      "deepseek": {
+        "provider": "openai-compat",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-coder",
+        "api_key_env": "DEEPSEEK_API_KEY"
+      }
+    },
+    "assignments": {
+      "reviewer": "qwen-local",
+      "coder": "qwen-local",
+      "judge": "qwen-local"
+    },
+    "pipeline": {
+      "max_rounds": 4,
+      "batch_max_lines": 800,
+      "severity_threshold": "warning",
+      "auto_style_fix": true,
+      "review_passes": 1,
+      "review_min_votes": 1,
+      "only_high_confidence": false,
+      "static_analysis": true,
+      "review_layers": [],
+      "knowledge_accumulation": false,
+      "smart_grouping": true,
+      "concurrency": 1
+    }
+  },
+  "rounds": [
+    {
+      "round_number": 1,
+      "findings": [],
+      "fixes": [],
+      "ci_passed": null,
+      "ci_output": ""
+    }
+  ],
+  "status": "completed",
+  "verdict": {
+    "status": "fail",
+    "score": 0.0,
+    "summary": "No findings were generated in round 1, indicating the review pipeline likely failed to produce actionable output. Without any findings, there is no basis to assess fix quality, convergence, or residual risk. The session is stuck before meaningful review can occur.",
+    "category_scores": {
+      "correctness": 0.0,
+      "security": 0.0,
+      "performance": 0.0,
+      "error_handling": 0.0,
+      "code_quality": 0.0
+    },
+    "recommendations": [
+      "Verify reviewer prompt and static analysis tools are correctly configured and invoked",
+      "Check if target directory contains reviewable source files and is accessible",
+      "Review pipeline logs for silent failures or misconfigurations in batch processing"
+    ]
+  }
+}

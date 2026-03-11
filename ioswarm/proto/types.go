@@ -149,8 +149,9 @@ type HeartbeatResponse struct {
 
 // PayoutInfo carries per-agent payout data from coordinator to agent.
 type PayoutInfo struct {
-	Epoch       uint64  `json:"epoch"`
-	AmountIOTX  float64 `json:"amount_iotx"`
-	Rank        int     `json:"rank"`
-	TotalAgents int     `json:"total_agents"`
+	Epoch          uint64  `json:"epoch"`
+	AmountIOTX     float64 `json:"amount_iotx"`
+	Rank           int32   `json:"rank"`
+	TotalAgents    int32   `json:"total_agents"`
+	RewardContract string  `json:"reward_contract,omitempty"` // AgentRewardPool address for claim()
 }
