@@ -505,6 +505,7 @@ func (c *Coordinator) epochLoop(ctx context.Context) {
 func (c *Coordinator) distributeEpochReward() {
 	work := c.reward.CurrentWork()
 	if len(work) == 0 {
+		c.logger.Debug("epoch tick: no agent work recorded, skipping reward distribution")
 		return
 	}
 

@@ -258,10 +258,19 @@ func (r *RewardDistributor) Distribute(totalReward *big.Int) *EpochSummary {
 		zap.Int("eligible_agents", len(eligible)),
 		zap.Uint64("total_tasks", totalTasks))
 
-	// 6. Reset for next epoch
+	// 6. Reset for next epoch (preserve wallet addresses)
 	r.currentEpoch++
 	r.epochStart = time.Now()
+	wallets := make(map[string]string, len(r.agentWork))
+	for id, w := range r.agentWork {
+		if w.WalletAddress != "" {
+			wallets[id] = w.WalletAddress
+		}
+	}
 	r.agentWork = make(map[string]*AgentWork)
+	for id, addr := range wallets {
+		r.agentWork[id] = &AgentWork{AgentID: id, WalletAddress: addr}
+	}
 
 	return summary
 }
