@@ -1,6 +1,6 @@
 # IOSwarm Production Test Plan
 
-**Environment:** Delegate node `178.62.196.98` | Image: `raullen/iotex-core:ioswarm-v1` (v2.3.5 + IOSwarm)
+**Environment:** Delegate node `178.62.196.98` | Image: `raullen/iotex-core:ioswarm-v2` (v2.3.5 + IOSwarm + on-chain reward)
 **Date:** 2026-03-11
 **Branch:** `ioswarm-v2.3.5`
 
@@ -115,26 +115,71 @@
 - [x] Run L3 agent, compare stateChanges vs on-chain
 - [ ] Agent-side EVM lacks full storage → different results. Needs access lists.
 
-### 3.6 Epoch Reward Trigger — DEFERRED
-- [ ] Wait for one epoch (360 blocks × 10s ≈ 1h, or adjust for demo)
-- [ ] Check coordinator logs for "epoch reward distributed"
-- [ ] Logic verified by code review. Config now has `epochRewardIOTX`.
+### 3.6 Single Agent — Basic Reward Flow
+- [ ] Start 1 agent with real wallet (`--wallet=0x...`)
+- [ ] Wait 2 epochs (~60s with `epochBlocks: 3`)
+- [ ] Coordinator logs: "epoch reward distributed" + "on-chain settlement submitted"
+- [ ] `ioswarm-agent claim --dry-run` shows claimable > 0
+- [ ] Execute claim (no --dry-run), verify wallet balance increases
+- [ ] Expected: agent receives ~0.45 IOTX per epoch (0.5 × 90% agent pool)
 
-### 3.7 Payout via Heartbeat — DEFERRED
-- [ ] After epoch, check agent heartbeat response for payout
-- [ ] Expected: `payout.AmountIOTX > 0`, `payout.Epoch` correct
+### 3.7 Two Agents — Proportional Split
+- [ ] Start agent-01 and agent-02 with different wallets
+- [ ] Wait 2 epochs
+- [ ] Both agents have claimable > 0
+- [ ] Verify proportional split: rewards ∝ tasks processed
+- [ ] Both agents successfully claim
+- [ ] Sum of claims ≈ 0.5 × 0.9 × 2 epochs = 0.9 IOTX (±rounding)
 
-### 3.8 MinTasks Threshold — DEFERRED
-- [ ] Agent with < 50 tasks processed at epoch boundary
-- [ ] Expected: no reward (below minTasksForReward)
+### 3.8 Ten Agents — Load Distribution
+- [ ] Start 10 agents, each with unique wallet
+- [ ] Run 5 epochs (~2.5 min)
+- [ ] All 10 agents have claimable > 0
+- [ ] Total claimable ≈ 5 × 0.5 × 0.9 = 2.25 IOTX
+- [ ] Random 3 agents claim successfully
 
-### 3.9 Accuracy Bonus — DEFERRED
-- [ ] Agent with accuracy >= 99.5%
-- [ ] Expected: bonusMultiplier = 1.2x applied
+### 3.9 Agent Join/Leave — Dynamic Allocation
+- [ ] Start 3 agents, run 2 epochs
+- [ ] Stop agent-03, start agent-04 (new wallet)
+- [ ] Run 2 more epochs
+- [ ] agent-03 claimable frozen at leave-time value (no new rewards)
+- [ ] agent-04 accumulates from join onwards
+- [ ] agent-01/02 accumulate across all 4 epochs
+- [ ] All agents can claim their respective shares
 
-### 3.10 Delegate Cut — DEFERRED
-- [ ] Check epoch summary: delegate gets 10% of epoch reward
-- [ ] Expected: delegateCutPct = 10 applied correctly
+### 3.10 MinTasks Threshold
+- [ ] Start 2 agents with `minTasksForReward: 1` (test config)
+- [ ] Verify both get rewards (low bar)
+- [ ] Temporarily set `minTasksForReward: 9999` (in code or config)
+- [ ] Wait 1 epoch → agents below threshold → claimable = 0
+
+### 3.11 Delegate Cut Verification
+- [ ] After running 3.6-3.9, sum all `depositAndSettle` msg.value on-chain
+- [ ] Verify: total deposited ≈ epochRewardIOTX × epochs × (1 - delegateCutPct/100)
+- [ ] Delegate's 10% cut stays in coordinator (never enters contract)
+
+### 3.12 Payout Notification via Heartbeat
+- [ ] After epoch, check agent heartbeat response
+- [ ] Expected: `payout.AmountIOTX > 0`, `payout.Epoch` correct, `payout.RewardContract` set
+- [ ] Agent logs show payout info received from coordinator
+
+### 3.13 Zero-Wallet Agent Skipped
+- [ ] Start 1 agent with real wallet + 1 agent with zero wallet (no --wallet)
+- [ ] Wait 1 epoch
+- [ ] On-chain settlement only includes the real-wallet agent
+- [ ] Zero-wallet agent gets heartbeat payout notification but 0 claimable on-chain
+
+### 3.14 Claim After Multiple Epochs (Accumulation)
+- [ ] Start 1 agent, do NOT claim for 5 epochs
+- [ ] Verify claimable accumulates each epoch (monotonically increasing)
+- [ ] Single claim at end withdraws full accumulated amount
+- [ ] Contract balance decreases by exact claimed amount
+
+### 3.15 Hot Wallet Balance Check
+- [ ] Before test: record hot wallet (0xd31D...A970) balance
+- [ ] Run 10 epochs with 3 agents
+- [ ] After test: hot wallet balance decreased by ≈ 10 × 0.5 × 0.9 = 4.5 IOTX
+- [ ] Contract balance ≈ total deposited - total claimed
 
 ---
 
@@ -226,7 +271,16 @@
 | 3.3 | PASS | L2 shadow: transfer tx matched (valid=true both sides). L3: 14.3% accuracy (1/7). | 2026-03-11 |
 | 3.4 | MEASURED | L3 EVM gas comparison: agent reverts on contract txs due to incomplete storage prefetch. 6 FalseNegatives. | 2026-03-11 |
 | 3.5 | KNOWN_ISSUE | L3 state comparison: agent-side EVM lacks full storage → different results from on-chain. Needs access lists. | 2026-03-11 |
-| 3.6-3.10 | DEFERRED | Epoch reward: timer-based (360 blocks × 10s ≈ 1h). Config now has epochRewardIOTX. Logic verified by code. | 2026-03-11 |
+| 3.6 | PENDING | Single agent basic reward flow (deposit → claim) | |
+| 3.7 | PENDING | Two agents proportional split | |
+| 3.8 | PENDING | Ten agents load distribution | |
+| 3.9 | PENDING | Agent join/leave dynamic allocation | |
+| 3.10 | PENDING | MinTasks threshold enforcement | |
+| 3.11 | PENDING | Delegate cut verification (10% stays off-chain) | |
+| 3.12 | PENDING | Payout notification via heartbeat | |
+| 3.13 | PENDING | Zero-wallet agent skipped in on-chain settlement | |
+| 3.14 | PENDING | Claim after multiple epochs (accumulation) | |
+| 3.15 | PENDING | Hot wallet balance accounting | |
 | 4.1 | PASS | No API key → "Unauthenticated: missing agent ID" | 2026-03-11 |
 | 4.2 | PASS | Wrong API key → "Unauthenticated: invalid auth token" | 2026-03-11 |
 | 4.3 | PASS | Code verified: HMAC auth overrides claimed agent_id; mismatch → rejected "agent_id mismatch" | 2026-03-11 |
@@ -256,7 +310,7 @@
 
 1. **L3 storage prefetch**: Only slot 0 prefetched; complex contracts get inaccurate EVM results (agent reverts, on-chain succeeds → FalseNegatives)
 2. ~~**OnBlockExecuted**: Not yet wired~~ → FIXED: ReceiveBlock wired as BlockCreationSubscriber
-3. **Epoch reward**: Now configurable via `epochRewardIOTX` config (default 800 IOTX). Production needs real on-chain reward fetch.
+3. **Epoch reward**: On-chain settlement via AgentRewardPool contract (depositAndSettle). Agents claim via `ioswarm-agent claim`.
 4. **Access list**: Not implemented; needed for accurate L3 on complex contracts
 5. **L3 shadow accuracy**: Currently ~14% on mainnet due to #1 and #4. L2 accuracy expected ~100%.
 
